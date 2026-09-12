@@ -7,7 +7,7 @@ from google import genai
 API_KEY = os.environ["GEMINI_API_KEY"]
 client = genai.Client(api_key=API_KEY)
 
-def nexora_ai(message, history):
+def nexora_ai(message, history=None):
     if not message or not message.strip():
         return "कृपया अपना सवाल लिखिए।"
 
