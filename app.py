@@ -1,4 +1,4 @@
-    import os
+     import os
 
 import gradio as gr
 from google import genai
@@ -186,4 +186,4 @@ with gr.Blocks(css=css, title="Nexora AI") as app:
     )
 
 
-app.launch()
+app.launch()   
