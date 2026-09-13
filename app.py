@@ -41,7 +41,7 @@ User question:
         return response.text
 
     except Exception as e:
-        return "❌ समस्या आ गई: " + str(e)
+     return "ERROR: " + repr(e)   
 
 
 def like():
