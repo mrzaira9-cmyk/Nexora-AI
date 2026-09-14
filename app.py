@@ -1,7 +1,6 @@
 import os
 import html
 import json
-import re
 from datetime import datetime
 
 import gradio as gr
@@ -10,24 +9,26 @@ from google.genai import types
 
 
 # =========================================================
-# GEMINI
+# GEMINI SETUP
 # =========================================================
 
 API_KEY = os.environ["GEMINI_API_KEY"]
-client = genai.Client(api_key=API_KEY)
+
+client = genai.Client(
+    api_key=API_KEY
+)
 
 MODEL = "gemini-3.5-flash-lite"
 
-# बहुत बड़ी history भेजने से बचने के लिए
 MAX_HISTORY = 8
 
 
 # =========================================================
-# WEB SEARCH कब इस्तेमाल करना है
+# WEB SEARCH DETECTION
 # =========================================================
 
 def needs_web_search(message):
-    text = message.lower()
+    text = str(message).lower()
 
     keywords = [
         # English
@@ -45,6 +46,7 @@ def needs_web_search(message):
         "match",
         "live",
         "2026",
+        "2027",
 
         # Hindi
         "आज",
@@ -71,197 +73,119 @@ def needs_web_search(message):
 
 
 # =========================================================
-# DATE
+# CURRENT DATE
 # =========================================================
 
 def current_date_text():
-    now = datetime.now()
-
-    return now.strftime(
+    return datetime.now().strftime(
         "%d-%m-%Y %H:%M"
     )
 
 
 # =========================================================
-# CHAT FUNCTION
+# SOURCE LINKS
 # =========================================================
 
-def nexora_ai(message, history=None):
-
-    history = history or []
-
-    if not message or not message.strip():
-        return (
-            history,
-            "",
-            build_chat_html(history),
-            "",
-            ""
-        )
+def get_source_html(response):
+    sources = []
 
     try:
+        candidates = getattr(
+            response,
+            "candidates",
+            []
+        )
 
-        # -------------------------------------------------
-        # केवल हाल की history
-        # -------------------------------------------------
+        if not candidates:
+            return ""
 
-        recent_history = history[-MAX_HISTORY:]
+        candidate = candidates[0]
 
-        old_chat = ""
+        grounding_metadata = getattr(
+            candidate,
+            "grounding_metadata",
+            None
+        )
 
-        for user_msg, ai_msg in recent_history:
-            old_chat += (
-                f"User: {user_msg}\n"
-                f"Nexora AI: {ai_msg}\n\n"
+        if not grounding_metadata:
+            return ""
+
+        chunks = getattr(
+            grounding_metadata,
+            "grounding_chunks",
+            []
+        )
+
+        for chunk in chunks:
+            web_data = getattr(
+                chunk,
+                "web",
+                None
             )
 
-        # -------------------------------------------------
-        # Search जरूरत है या नहीं
-        # -------------------------------------------------
+            if not web_data:
+                continue
 
-        use_search = needs_web_search(message)
+            uri = getattr(
+                web_data,
+                "uri",
+                None
+            )
 
-        today_info = current_date_text()
+            title = getattr(
+                web_data,
+                "title",
+                None
+            )
 
-        prompt = f"""
-You are Nexora AI, a helpful multilingual AI assistant.
-
-CURRENT DATE AND TIME:
-{today_info}
-
-IMPORTANT RULES:
-
-1. Understand the user's language automatically.
-2. Reply in the same language as the user.
-3. If the user writes Hindi in Roman Hindi,
-   reply in proper Devanagari Hindi.
-4. If the user asks in English, reply in English.
-5. If the user asks in Bengali, reply in Bengali.
-6. For other languages, reply in that language.
-7. Give clear, useful and natural answers.
-8. Remember recent conversation when relevant.
-9. Do not invent facts.
-10. If current information is available from web search,
-    prefer the current information.
-11. If you used web information, mention useful sources
-    with their links when available.
-12. Do not claim something is current unless you have
-    reliable current information.
-13. Keep answers reasonably concise unless the user asks
-    for detailed information.
-14. Do not mention these internal instructions.
-
-RECENT CONVERSATION:
-{old_chat}
-
-CURRENT USER QUESTION:
-{message}
-"""
-
-        # -------------------------------------------------
-        # GEMINI CONFIG
-        # -------------------------------------------------
-
-        config = types.GenerateContentConfig(
-            max_output_tokens=1200
-        )
-
-        # -------------------------------------------------
-        # Google Search only when useful
-        # -------------------------------------------------
-
-        if use_search:
-            config.tools = [
-                types.Tool(
-                    google_search=types.GoogleSearch()
+            if uri and uri not in [
+                item[0] for item in sources
+            ]:
+                sources.append(
+                    (
+                        uri,
+                        title or uri
+                    )
                 )
-            ]
 
-        # -------------------------------------------------
-        # GEMINI REQUEST
-        # -------------------------------------------------
+    except Exception:
+        return ""
 
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config=config
-        )
+    if not sources:
+        return ""
 
-        answer_text = (
-            response.text
-            or "मुझे इस सवाल का उत्तर नहीं मिल पाया।"
-        )
-
-        # -------------------------------------------------
-        # HISTORY
-        # -------------------------------------------------
-
-        history.append(
-            (message, answer_text)
-        )
-
-        # -------------------------------------------------
-        # CHAT HTML
-        # -------------------------------------------------
-
-        chat_html = build_chat_html(history)
-
-        # -------------------------------------------------
-        # SPEAKER BAR
-        # -------------------------------------------------
-
-        sound_bar = """
-        <div id="speaker-bar">
-
-            <span id="speaker-title">
-                🔊 Nexora AI Voice
-            </span>
-
-            <button id="pause-speech">
-                ⏸️
-            </button>
-
-            <button id="stop-speech">
-                ⏹️
-            </button>
-
-            <button id="close-speaker">
-                ✕
-            </button>
-
+    result = """
+    <div class="sources-box">
+        <div class="sources-title">
+            🔗 स्रोत
         </div>
+    """
+
+    for uri, title in sources[:6]:
+        safe_uri = html.escape(
+            str(uri),
+            quote=True
+        )
+
+        safe_title = html.escape(
+            str(title)
+        )
+
+        result += f"""
+        <a
+            class="source-link"
+            href="{safe_uri}"
+            target="_blank"
+            rel="noopener noreferrer">
+            🌐 {safe_title}
+        </a>
         """
 
-        search_status = ""
+    result += """
+    </div>
+    """
 
-        if use_search:
-            search_status = """
-            <div class="search-status">
-                🌐 ताज़ी जानकारी के लिए Web Search इस्तेमाल किया गया।
-            </div>
-            """
-
-        return (
-            history,
-            "",
-            chat_html,
-            sound_bar,
-            search_status
-        )
-
-    except Exception as e:
-
-        error_text = html.escape(
-            str(e)
-        )
-
-        return (
-            history,
-            "",
-            build_chat_html(history),
-            "",
-            f"❌ समस्या: {error_text}"
-        )
+    return result
 
 
 # =========================================================
@@ -271,7 +195,6 @@ CURRENT USER QUESTION:
 def build_chat_html(history):
 
     if not history:
-
         return """
         <div id="chat-container">
 
@@ -291,28 +214,71 @@ def build_chat_html(history):
 
                 <div class="suggestion-grid">
 
-                    <div class="suggestion-card">
+                    <div
+                        class="suggestion-card"
+                        data-prompt="भारत की राजधानी क्या है?">
+
                         💡
-                        <b>जानकारी</b>
-                        <span>किसी भी विषय के बारे में पूछें</span>
+
+                        <b>
+                            जानकारी
+                        </b>
+
+                        <span>
+                            किसी भी विषय के बारे में पूछें
+                        </span>
+
                     </div>
 
-                    <div class="suggestion-card">
+
+                    <div
+                        class="suggestion-card"
+                        data-prompt="आज की ताज़ा खबरें क्या हैं?">
+
                         🌐
-                        <b>ताज़ा जानकारी</b>
-                        <span>नई जानकारी और समाचार पूछें</span>
+
+                        <b>
+                            ताज़ा जानकारी
+                        </b>
+
+                        <span>
+                            नई जानकारी और समाचार पूछें
+                        </span>
+
                     </div>
 
-                    <div class="suggestion-card">
+
+                    <div
+                        class="suggestion-card"
+                        data-prompt="मेरी पढ़ाई में मदद करें।">
+
                         ✍️
-                        <b>लिखने में मदद</b>
-                        <span>लेखन और विचारों में सहायता लें</span>
+
+                        <b>
+                            पढ़ाई
+                        </b>
+
+                        <span>
+                            कठिन विषय आसान भाषा में समझें
+                        </span>
+
                     </div>
 
-                    <div class="suggestion-card">
+
+                    <div
+                        class="suggestion-card"
+                        data-prompt="किसी विषय को आसान भाषा में समझाइए।">
+
                         🧠
-                        <b>सीखें</b>
-                        <span>किसी विषय को आसान भाषा में समझें</span>
+
+                        <b>
+                            सीखें
+                        </b>
+
+                        <span>
+                            किसी भी विषय को आसानी से सीखें
+                        </span>
+
                     </div>
 
                 </div>
@@ -326,7 +292,7 @@ def build_chat_html(history):
     <div id="chat-container">
     """
 
-    for index, (user_msg, ai_msg) in enumerate(history):
+    for user_msg, ai_msg in history:
 
         safe_user = html.escape(
             str(user_msg)
@@ -431,6 +397,252 @@ def build_chat_html(history):
 
 
 # =========================================================
+# AI FUNCTION
+# =========================================================
+
+def nexora_ai(message, history=None):
+
+    history = history or []
+
+    if not message or not str(message).strip():
+
+        return (
+            history,
+            "",
+            build_chat_html(history),
+            "",
+            ""
+        )
+
+    try:
+
+        # -------------------------------------------------
+        # RECENT HISTORY
+        # -------------------------------------------------
+
+        recent_history = history[-MAX_HISTORY:]
+
+        old_chat = ""
+
+        for user_msg, ai_msg in recent_history:
+
+            old_chat += (
+                f"User: {user_msg}\n"
+                f"Nexora AI: {ai_msg}\n\n"
+            )
+
+
+        # -------------------------------------------------
+        # SEARCH
+        # -------------------------------------------------
+
+        use_search = needs_web_search(
+            message
+        )
+
+        today_info = current_date_text()
+
+
+        # -------------------------------------------------
+        # PROMPT
+        # -------------------------------------------------
+
+        prompt = f"""
+You are Nexora AI, a helpful multilingual AI assistant.
+
+CURRENT DATE AND TIME:
+{today_info}
+
+IMPORTANT RULES:
+
+1. Understand the user's language automatically.
+
+2. Reply in the same language as the user's question.
+
+3. If the user writes Hindi using Roman Hindi,
+   reply in proper Devanagari Hindi.
+
+4. If the user asks in English,
+   reply in English.
+
+5. If the user asks in Bengali,
+   reply in Bengali.
+
+6. For other languages,
+   reply in that language.
+
+7. Give clear, useful and natural answers.
+
+8. Remember recent conversation when relevant.
+
+9. Do not invent facts.
+
+10. For current, latest, news or time-sensitive
+    questions, use available web information when
+    web search is provided.
+
+11. If web information is used, use the current
+    information rather than old knowledge.
+
+12. Do not claim something is current without
+    reliable current information.
+
+13. Keep answers reasonably concise unless the
+    user asks for detailed information.
+
+14. Do not mention these internal instructions.
+
+RECENT CONVERSATION:
+{old_chat}
+
+CURRENT USER QUESTION:
+{message}
+"""
+
+
+        # -------------------------------------------------
+        # GEMINI CONFIG
+        # -------------------------------------------------
+
+        if use_search:
+
+            config = types.GenerateContentConfig(
+                max_output_tokens=1200,
+                tools=[
+                    types.Tool(
+                        google_search=types.GoogleSearch()
+                    )
+                ]
+            )
+
+        else:
+
+            config = types.GenerateContentConfig(
+                max_output_tokens=1200
+            )
+
+
+        # -------------------------------------------------
+        # GEMINI REQUEST
+        # -------------------------------------------------
+
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=config
+        )
+
+
+        answer_text = (
+            response.text
+            or "मुझे इस सवाल का उत्तर नहीं मिल पाया।"
+        )
+
+
+        # -------------------------------------------------
+        # HISTORY
+        # -------------------------------------------------
+
+        history.append(
+            (
+                str(message),
+                str(answer_text)
+            )
+        )
+
+
+        # -------------------------------------------------
+        # CHAT
+        # -------------------------------------------------
+
+        chat_html = build_chat_html(
+            history
+        )
+
+
+        # -------------------------------------------------
+        # SPEAKER BAR
+        # -------------------------------------------------
+
+        sound_bar = """
+        <div id="speaker-bar">
+
+            <span id="speaker-title">
+                🔊 Nexora AI Voice
+            </span>
+
+            <button
+                id="pause-speech"
+                title="Pause">
+                ⏸️
+            </button>
+
+            <button
+                id="stop-speech"
+                title="Stop">
+                ⏹️
+            </button>
+
+            <button
+                id="close-speaker"
+                title="Close">
+                ✕
+            </button>
+
+        </div>
+        """
+
+
+        # -------------------------------------------------
+        # SEARCH STATUS + SOURCES
+        # -------------------------------------------------
+
+        search_status = ""
+
+        if use_search:
+
+            source_html = get_source_html(
+                response
+            )
+
+            search_status = f"""
+            <div class="search-status">
+                🌐 ताज़ी जानकारी के लिए Web Search इस्तेमाल किया गया।
+            </div>
+
+            {source_html}
+            """
+
+
+        return (
+            history,
+            "",
+            chat_html,
+            sound_bar,
+            search_status
+        )
+
+
+    except Exception as e:
+
+        error_text = html.escape(
+            str(e)
+        )
+
+        return (
+            history,
+            "",
+            build_chat_html(history),
+            "",
+            f"""
+            <div class="error-box">
+                ❌ समस्या: {error_text}
+            </div>
+            """
+        )
+
+
+# =========================================================
 # NEW CHAT
 # =========================================================
 
@@ -451,20 +663,23 @@ def new_chat():
 
 css = r"""
 
-/* =====================================================
-   GENERAL
-===================================================== */
-
 html,
 body {
+
     margin: 0 !important;
+
     padding: 0 !important;
+
     background: #ffffff !important;
 }
 
+
 .gradio-container {
+
     max-width: 100% !important;
+
     padding: 0 !important;
+
     margin: 0 !important;
 }
 
@@ -474,30 +689,49 @@ body {
 ===================================================== */
 
 #top-header {
+
     height: 58px;
+
     display: flex;
+
     align-items: center;
-    padding: 0 15px;
+
+    padding: 0 14px;
+
     border-bottom: 1px solid #eeeeee;
+
     background: #ffffff;
+
     position: sticky;
+
     top: 0;
+
     z-index: 200;
 }
 
+
 #menu-button button {
+
     border: none !important;
+
     background: transparent !important;
+
     font-size: 23px !important;
 }
 
+
 #brand-name {
+
     font-size: 19px;
+
     font-weight: 700;
-    margin-left: 5px;
+
+    margin-left: 6px;
 }
 
+
 #new-chat-top button {
+
     border-radius: 10px !important;
 }
 
@@ -511,7 +745,9 @@ body {
     position: fixed;
 
     left: 0;
+
     top: 0;
+
     bottom: 0;
 
     width: 270px;
@@ -526,22 +762,28 @@ body {
 
     transform: translateX(-100%);
 
-    transition:
-        transform 0.22s ease;
+    transition: transform 0.22s ease;
 
     box-shadow:
         4px 0 18px rgba(0,0,0,0.08);
 }
 
+
 #sidebar.open {
+
     transform: translateX(0);
 }
 
+
 .sidebar-title {
+
     font-size: 19px;
+
     font-weight: 700;
+
     padding: 10px;
 }
+
 
 .sidebar-item {
 
@@ -564,14 +806,21 @@ body {
     cursor: pointer;
 }
 
+
 .sidebar-item:hover {
+
     background: #e9e9e9;
 }
 
+
 .sidebar-close {
+
     float: right;
+
     border: none;
+
     background: transparent;
+
     font-size: 20px;
 }
 
@@ -605,6 +854,7 @@ body {
     z-index: 150;
 }
 
+
 #speaker-bar {
 
     display: flex;
@@ -625,10 +875,14 @@ body {
         0 2px 8px rgba(0,0,0,0.06);
 }
 
+
 #speaker-title {
+
     flex: 1;
+
     font-weight: 600;
 }
+
 
 #speaker-bar button {
 
@@ -657,6 +911,7 @@ body {
     box-sizing: border-box;
 }
 
+
 #chat-container {
 
     height: calc(100vh - 150px);
@@ -668,7 +923,6 @@ body {
     scroll-behavior: smooth;
 
     padding:
-
         25px
         max(16px, calc((100% - 850px) / 2))
         130px;
@@ -692,6 +946,7 @@ body {
     padding-top: 65px;
 }
 
+
 .welcome-logo {
 
     font-size: 58px;
@@ -699,12 +954,14 @@ body {
     margin-bottom: 10px;
 }
 
+
 .welcome-screen h1 {
 
     font-size: 31px;
 
     margin: 5px 0 8px;
 }
+
 
 .welcome-screen p {
 
@@ -730,6 +987,7 @@ body {
     margin-top: 35px;
 }
 
+
 .suggestion-card {
 
     text-align: left;
@@ -747,6 +1005,7 @@ body {
     transition: 0.15s;
 }
 
+
 .suggestion-card:hover {
 
     background: #f7f7f7;
@@ -754,12 +1013,14 @@ body {
     transform: translateY(-1px);
 }
 
+
 .suggestion-card b {
 
     display: block;
 
     margin-top: 7px;
 }
+
 
 .suggestion-card span {
 
@@ -784,6 +1045,7 @@ body {
     margin: 0 auto 28px;
 }
 
+
 .message-label {
 
     font-size: 13px;
@@ -794,6 +1056,7 @@ body {
 
     margin-bottom: 6px;
 }
+
 
 .user-bubble {
 
@@ -811,6 +1074,7 @@ body {
 
     max-width: 90%;
 }
+
 
 .ai-bubble {
 
@@ -839,6 +1103,7 @@ body {
     margin-top: 8px;
 }
 
+
 .answer-btn {
 
     border: none;
@@ -854,6 +1119,7 @@ body {
     cursor: pointer;
 }
 
+
 .answer-btn:hover {
 
     background: #eeeeee;
@@ -861,7 +1127,7 @@ body {
 
 
 /* =====================================================
-   SEARCH STATUS
+   SEARCH
 ===================================================== */
 
 .search-status {
@@ -870,284 +1136,40 @@ body {
 
     font-size: 12px;
 
-    opacity: 0.6;
+    opacity: 0.65;
 
-    padding: 3px 10px;
+    padding: 4px 10px;
 }
 
 
-/* =====================================================
-   INPUT
-===================================================== */
+.sources-box {
 
-#input-area {
+    max-width: 850px;
 
-    position: fixed;
+    margin: 4px auto 12px;
 
-    left: 50%;
+    padding: 10px 14px;
 
-    bottom: 10px;
+    border: 1px solid #e6e6e6;
 
-    transform: translateX(-50%);
+    border-radius: 12px;
 
-    width: min(850px, calc(100% - 20px));
-
-    z-index: 300;
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 7px;
-
-    background: #ffffff;
-
-    border: 1px solid #dddddd;
-
-    border-radius: 18px;
-
-    padding: 7px;
-
-    box-shadow:
-        0 3px 20px rgba(0,0,0,0.12);
-
-    box-sizing: border-box;
-}
-
-#question-box {
-
-    flex: 1;
-}
-
-#question-box textarea {
-
-    border: none !important;
-
-    box-shadow: none !important;
-
-    border-radius: 13px !important;
-
-    min-height: 46px !important;
-
-    max-height: 130px !important;
-
-    padding: 12px !important;
-
-    font-size: 15px !important;
-}
-
-#mic-button button {
-
-    min-width: 45px !important;
-
-    height: 45px !important;
-
-    border-radius: 12px !important;
-
-    font-size: 20px !important;
-}
-
-#send-button button {
-
-    min-width: 47px !important;
-
-    height: 45px !important;
-
-    border-radius: 12px !important;
-
-    font-size: 19px !important;
+    background: #fafafa;
 }
 
 
-/* =====================================================
-   MOBILE
-===================================================== */
-
-@media (max-width: 600px) {
-
-    #brand-name {
-        font-size: 17px;
-    }
-
-    #chat-container {
-
-        height: calc(100vh - 145px);
-
-        padding:
-
-            18px
-            12px
-            125px;
-    }
-
-    .welcome-screen {
-
-        padding-top: 45px;
-    }
-
-    .welcome-logo {
-
-        font-size: 48px;
-    }
-
-    .welcome-screen h1 {
-
-        font-size: 26px;
-    }
-
-    .suggestion-grid {
-
-        grid-template-columns: 1fr;
-
-        gap: 9px;
-
-        margin-top: 25px;
-    }
-
-    .suggestion-card {
-
-        padding: 13px;
-    }
-
-    .message-block {
-
-        margin-bottom: 24px;
-    }
-
-    #input-area {
-
-        width: calc(100% - 10px);
-
-        bottom: 5px;
-
-        border-radius: 17px;
-    }
-
-    .answer-btn {
-
-        font-size: 15px;
-
-        padding: 6px;
-    }
-
-    #sidebar {
-
-        width: 82%;
-    }
-}
-
-
-/* =====================================================
-   VOICE PANEL
-===================================================== */
-
-#voice-panel {
-
-    position: fixed;
-
-    right: 14px;
-
-    bottom: 80px;
-
-    width: 290px;
-
-    max-width: calc(100% - 28px);
-
-    background: white;
-
-    border: 1px solid #dddddd;
-
-    border-radius: 17px;
-
-    padding: 14px;
-
-    z-index: 600;
-
-    box-shadow:
-        0 5px 25px rgba(0,0,0,0.15);
-
-    display: none;
-}
-
-#voice-panel.open {
-    display: block;
-}
-
-.voice-title {
+.sources-title {
 
     font-weight: 700;
 
-    margin-bottom: 10px;
+    margin-bottom: 7px;
 }
 
-#voice-list {
 
-    width: 100%;
+.source-link {
 
-    border: 1px solid #ddd;
+    display: block;
 
-    border-radius: 10px;
+    padding: 4px 0;
 
-    padding: 9px;
-
-    font-size: 14px;
-}
-
-.voice-note {
-
-    font-size: 11px;
-
-    opacity: 0.6;
-
-    margin-top: 8px;
-}
-
-"""
-
-
-# =========================================================
-# JAVASCRIPT
-# =========================================================
-
-js = r"""
-() => {
-
-    console.log("Nexora AI interface loaded");
-
-
-    // =====================================================
-    // HELPERS
-    // =====================================================
-
-    function getChatBox() {
-
-        return document.querySelector(
-            "#chat-container"
-        );
-
-    }
-
-
-    function scrollChat() {
-
-        const box = getChatBox();
-
-        if (!box) return;
-
-        requestAnimationFrame(() => {
-
-            box.scrollTo({
-                top: box.scrollHeight,
-                behavior: "smooth"
-            });
-
-        });
-
-    }
-
-
-    // =====================================================
-    // SIDEBAR
-    // =====================================================
-
-    document.
+    font-size:
