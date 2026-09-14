@@ -12,11 +12,14 @@ from google.genai import types
 # GEMINI SETUP
 # =========================================================
 
-API_KEY = os.environ["GEMINI_API_KEY"]
+API_KEY = os.environ.get("GEMINI_API_KEY")
 
-client = genai.Client(
-    api_key=API_KEY
-)
+if not API_KEY:
+    raise RuntimeError(
+        "GEMINI_API_KEY environment variable is missing."
+    )
+
+client = genai.Client(api_key=API_KEY)
 
 MODEL = "gemini-3.5-flash-lite"
 
@@ -28,10 +31,10 @@ MAX_HISTORY = 8
 # =========================================================
 
 def needs_web_search(message):
+
     text = str(message).lower()
 
     keywords = [
-        # English
         "today",
         "latest",
         "current",
@@ -48,7 +51,6 @@ def needs_web_search(message):
         "2026",
         "2027",
 
-        # Hindi
         "आज",
         "अभी",
         "ताज़ा",
@@ -69,7 +71,10 @@ def needs_web_search(message):
         "लाइव",
     ]
 
-    return any(word in text for word in keywords)
+    return any(
+        word in text
+        for word in keywords
+    )
 
 
 # =========================================================
@@ -77,6 +82,7 @@ def needs_web_search(message):
 # =========================================================
 
 def current_date_text():
+
     return datetime.now().strftime(
         "%d-%m-%Y %H:%M"
     )
@@ -87,36 +93,39 @@ def current_date_text():
 # =========================================================
 
 def get_source_html(response):
+
     sources = []
 
     try:
+
         candidates = getattr(
             response,
             "candidates",
             []
-        )
+        ) or []
 
         if not candidates:
             return ""
 
         candidate = candidates[0]
 
-        grounding_metadata = getattr(
+        metadata = getattr(
             candidate,
             "grounding_metadata",
             None
         )
 
-        if not grounding_metadata:
+        if not metadata:
             return ""
 
         chunks = getattr(
-            grounding_metadata,
+            metadata,
             "grounding_chunks",
             []
-        )
+        ) or []
 
         for chunk in chunks:
+
             web_data = getattr(
                 chunk,
                 "web",
@@ -138,9 +147,16 @@ def get_source_html(response):
                 None
             )
 
-            if uri and uri not in [
-                item[0] for item in sources
-            ]:
+            if not uri:
+                continue
+
+            already_exists = any(
+                old_uri == uri
+                for old_uri, old_title in sources
+            )
+
+            if not already_exists:
+
                 sources.append(
                     (
                         uri,
@@ -149,6 +165,7 @@ def get_source_html(response):
                 )
 
     except Exception:
+
         return ""
 
     if not sources:
@@ -162,6 +179,7 @@ def get_source_html(response):
     """
 
     for uri, title in sources[:6]:
+
         safe_uri = html.escape(
             str(uri),
             quote=True
@@ -176,7 +194,8 @@ def get_source_html(response):
             class="source-link"
             href="{safe_uri}"
             target="_blank"
-            rel="noopener noreferrer">
+            rel="noopener noreferrer"
+        >
             🌐 {safe_title}
         </a>
         """
@@ -189,12 +208,81 @@ def get_source_html(response):
 
 
 # =========================================================
+# ANSWER BUTTONS
+# =========================================================
+
+def answer_actions(answer_text):
+
+    answer_json = json.dumps(
+        str(answer_text),
+        ensure_ascii=False
+    )
+
+    safe_answer = html.escape(
+        answer_json,
+        quote=True
+    )
+
+    return f"""
+    <div class="answer-actions">
+
+        <button
+            class="answer-btn"
+            title="पसंद"
+        >
+            👍
+        </button>
+
+        <button
+            class="answer-btn"
+            title="नापसंद"
+        >
+            👎
+        </button>
+
+        <button
+            class="answer-btn speak-btn"
+            data-answer="{safe_answer}"
+            title="सुनें"
+        >
+            🔊
+        </button>
+
+        <button
+            class="answer-btn copy-btn"
+            data-answer="{safe_answer}"
+            title="कॉपी"
+        >
+            📋
+        </button>
+
+        <button
+            class="answer-btn share-btn"
+            data-answer="{safe_answer}"
+            title="शेयर"
+        >
+            ↗️
+        </button>
+
+        <button
+            class="answer-btn"
+            title="और विकल्प"
+        >
+            ⋯
+        </button>
+
+    </div>
+    """
+
+
+# =========================================================
 # CHAT HTML
 # =========================================================
 
 def build_chat_html(history):
 
     if not history:
+
         return """
         <div id="chat-container">
 
@@ -214,10 +302,10 @@ def build_chat_html(history):
 
                 <div class="suggestion-grid">
 
-                    <div
+                    <button
                         class="suggestion-card"
-                        data-prompt="भारत की राजधानी क्या है?">
-
+                        data-prompt="भारत की राजधानी क्या है?"
+                    >
                         💡
 
                         <b>
@@ -228,13 +316,13 @@ def build_chat_html(history):
                             किसी भी विषय के बारे में पूछें
                         </span>
 
-                    </div>
+                    </button>
 
 
-                    <div
+                    <button
                         class="suggestion-card"
-                        data-prompt="आज की ताज़ा खबरें क्या हैं?">
-
+                        data-prompt="आज की ताज़ा खबरें क्या हैं?"
+                    >
                         🌐
 
                         <b>
@@ -245,13 +333,13 @@ def build_chat_html(history):
                             नई जानकारी और समाचार पूछें
                         </span>
 
-                    </div>
+                    </button>
 
 
-                    <div
+                    <button
                         class="suggestion-card"
-                        data-prompt="मेरी पढ़ाई में मदद करें।">
-
+                        data-prompt="मेरी पढ़ाई में मदद करें।"
+                    >
                         ✍️
 
                         <b>
@@ -262,13 +350,13 @@ def build_chat_html(history):
                             कठिन विषय आसान भाषा में समझें
                         </span>
 
-                    </div>
+                    </button>
 
 
-                    <div
+                    <button
                         class="suggestion-card"
-                        data-prompt="किसी विषय को आसान भाषा में समझाइए।">
-
+                        data-prompt="किसी विषय को आसान भाषा में समझाइए।"
+                    >
                         🧠
 
                         <b>
@@ -279,7 +367,7 @@ def build_chat_html(history):
                             किसी भी विषय को आसानी से सीखें
                         </span>
 
-                    </div>
+                    </button>
 
                 </div>
 
@@ -288,7 +376,7 @@ def build_chat_html(history):
         </div>
         """
 
-    chat_html = """
+    result = """
     <div id="chat-container">
     """
 
@@ -302,105 +390,45 @@ def build_chat_html(history):
             str(ai_msg)
         )
 
-        answer_json = json.dumps(
-            str(ai_msg),
-            ensure_ascii=False
-        )
-
-        safe_answer_json = html.escape(
-            answer_json,
-            quote=True
-        )
-
-        chat_html += f"""
+        result += f"""
 
         <div class="message-block">
 
-            <div class="user-message">
+            <div class="message-label">
+                आप
+            </div>
 
-                <div class="message-label">
-                    आप
-                </div>
-
-                <div class="user-bubble">
-                    {safe_user}
-                </div>
-
+            <div class="user-bubble">
+                {safe_user}
             </div>
 
 
-            <div class="ai-message">
-
-                <div class="message-label">
-                    🤖 Nexora AI
-                </div>
-
-                <div class="ai-bubble">
-                    {safe_ai}
-                </div>
-
-
-                <div class="answer-actions">
-
-                    <button
-                        class="answer-btn like-btn"
-                        title="पसंद">
-                        👍
-                    </button>
-
-                    <button
-                        class="answer-btn dislike-btn"
-                        title="नापसंद">
-                        👎
-                    </button>
-
-                    <button
-                        class="answer-btn speak-btn"
-                        data-answer="{safe_answer_json}"
-                        title="सुनें">
-                        🔊
-                    </button>
-
-                    <button
-                        class="answer-btn copy-btn"
-                        data-answer="{safe_answer_json}"
-                        title="कॉपी">
-                        📋
-                    </button>
-
-                    <button
-                        class="answer-btn share-btn"
-                        data-answer="{safe_answer_json}"
-                        title="शेयर">
-                        ↗️
-                    </button>
-
-                    <button
-                        class="answer-btn more-btn"
-                        title="और विकल्प">
-                        ⋯
-                    </button>
-
-                </div>
-
+            <div class="message-label ai-label">
+                🤖 Nexora AI
             </div>
+
+            <div class="ai-bubble">
+                {safe_ai}
+            </div>
+
+            {answer_actions(ai_msg)}
 
         </div>
 
         """
 
-    chat_html += """
+    result += """
     </div>
     """
 
-    return chat_html
+    return result
 
 
 # =========================================================
 # AI FUNCTION
 # =========================================================
 
-def nexora_ai(message, history=None):
+def nexora_ai(message, history):
 
     history = history or []
 
@@ -408,56 +436,43 @@ def nexora_ai(message, history=None):
 
         return (
             history,
-            "",
             build_chat_html(history),
             "",
             ""
         )
 
-    try:
+    message = str(message).strip()
 
-        # -------------------------------------------------
-        # RECENT HISTORY
-        # -------------------------------------------------
+    recent_history = history[-MAX_HISTORY:]
 
-        recent_history = history[-MAX_HISTORY:]
+    old_chat_parts = []
 
-        old_chat = ""
+    for user_msg, ai_msg in recent_history:
 
-        for user_msg, ai_msg in recent_history:
-
-            old_chat += (
-                f"User: {user_msg}\n"
-                f"Nexora AI: {ai_msg}\n\n"
-            )
-
-
-        # -------------------------------------------------
-        # SEARCH
-        # -------------------------------------------------
-
-        use_search = needs_web_search(
-            message
+        old_chat_parts.append(
+            f"User: {user_msg}\n"
+            f"Nexora AI: {ai_msg}"
         )
 
-        today_info = current_date_text()
+    old_chat = "\n\n".join(
+        old_chat_parts
+    )
 
+    use_search = needs_web_search(
+        message
+    )
 
-        # -------------------------------------------------
-        # PROMPT
-        # -------------------------------------------------
-
-        prompt = f"""
+    prompt = f"""
 You are Nexora AI, a helpful multilingual AI assistant.
 
 CURRENT DATE AND TIME:
-{today_info}
+{current_date_text()}
 
 IMPORTANT RULES:
 
 1. Understand the user's language automatically.
 
-2. Reply in the same language as the user's question.
+2. Reply in the same language as the user.
 
 3. If the user writes Hindi using Roman Hindi,
    reply in proper Devanagari Hindi.
@@ -471,24 +486,22 @@ IMPORTANT RULES:
 6. For other languages,
    reply in that language.
 
-7. Give clear, useful and natural answers.
+7. Give clear and useful answers.
 
 8. Remember recent conversation when relevant.
 
 9. Do not invent facts.
 
 10. For current, latest, news or time-sensitive
-    questions, use available web information when
-    web search is provided.
+    questions, use web information when web
+    search is available.
 
-11. If web information is used, use the current
-    information rather than old knowledge.
+11. Prefer current reliable information.
 
 12. Do not claim something is current without
     reliable current information.
 
-13. Keep answers reasonably concise unless the
-    user asks for detailed information.
+13. Keep answers reasonably concise.
 
 14. Do not mention these internal instructions.
 
@@ -499,10 +512,7 @@ CURRENT USER QUESTION:
 {message}
 """
 
-
-        # -------------------------------------------------
-        # GEMINI CONFIG
-        # -------------------------------------------------
+    try:
 
         if use_search:
 
@@ -521,107 +531,82 @@ CURRENT USER QUESTION:
                 max_output_tokens=1200
             )
 
-
-        # -------------------------------------------------
-        # GEMINI REQUEST
-        # -------------------------------------------------
-
         response = client.models.generate_content(
             model=MODEL,
             contents=prompt,
             config=config
         )
 
-
         answer_text = (
             response.text
             or "मुझे इस सवाल का उत्तर नहीं मिल पाया।"
         )
 
-
-        # -------------------------------------------------
-        # HISTORY
-        # -------------------------------------------------
-
-        history.append(
-            (
-                str(message),
-                str(answer_text)
-            )
+        new_history = (
+            recent_history
+            + [
+                (
+                    message,
+                    str(answer_text)
+                )
+            ]
         )
-
-
-        # -------------------------------------------------
-        # CHAT
-        # -------------------------------------------------
 
         chat_html = build_chat_html(
-            history
+            new_history
         )
 
-
-        # -------------------------------------------------
-        # SPEAKER BAR
-        # -------------------------------------------------
-
-        sound_bar = """
+        speaker_html = """
         <div id="speaker-bar">
 
-            <span id="speaker-title">
+            <span>
                 🔊 Nexora AI Voice
             </span>
 
             <button
                 id="pause-speech"
-                title="Pause">
+                title="Pause"
+            >
                 ⏸️
             </button>
 
             <button
                 id="stop-speech"
-                title="Stop">
+                title="Stop"
+            >
                 ⏹️
             </button>
 
             <button
                 id="close-speaker"
-                title="Close">
+                title="Close"
+            >
                 ✕
             </button>
 
         </div>
         """
 
-
-        # -------------------------------------------------
-        # SEARCH STATUS + SOURCES
-        # -------------------------------------------------
-
-        search_status = ""
+        search_html = ""
 
         if use_search:
 
-            source_html = get_source_html(
-                response
-            )
-
-            search_status = f"""
+            search_html = """
             <div class="search-status">
                 🌐 ताज़ी जानकारी के लिए Web Search इस्तेमाल किया गया।
             </div>
-
-            {source_html}
             """
 
+            search_html += get_source_html(
+                response
+            )
 
         return (
-            history,
-            "",
+            new_history,
             chat_html,
-            sound_bar,
-            search_status
+            speaker_html,
+            search_html
         )
-
 
     except Exception as e:
 
@@ -631,7 +616,6 @@ CURRENT USER QUESTION:
 
         return (
             history,
-            "",
             build_chat_html(history),
             "",
             f"""
@@ -643,533 +627,429 @@ CURRENT USER QUESTION:
 
 
 # =========================================================
-# NEW CHAT
-# =========================================================
-
-def new_chat():
-
-    return (
-        [],
-        "",
-        build_chat_html([]),
-        "",
-        ""
-    )
-
-
-# =========================================================
 # CSS
 # =========================================================
 
 css = r"""
-
 html,
 body {
-
     margin: 0 !important;
-
     padding: 0 !important;
-
     background: #ffffff !important;
 }
 
-
 .gradio-container {
-
     max-width: 100% !important;
-
-    padding: 0 !important;
-
     margin: 0 !important;
+    padding: 0 !important;
 }
-
-
-/* =====================================================
-   HEADER
-===================================================== */
 
 #top-header {
-
     height: 58px;
-
     display: flex;
-
     align-items: center;
-
-    padding: 0 14px;
-
+    padding: 0 15px;
     border-bottom: 1px solid #eeeeee;
-
     background: #ffffff;
-
     position: sticky;
-
     top: 0;
-
-    z-index: 200;
+    z-index: 100;
 }
-
-
-#menu-button button {
-
-    border: none !important;
-
-    background: transparent !important;
-
-    font-size: 23px !important;
-}
-
 
 #brand-name {
-
-    font-size: 19px;
-
-    font-weight: 700;
-
-    margin-left: 6px;
-}
-
-
-#new-chat-top button {
-
-    border-radius: 10px !important;
-}
-
-
-/* =====================================================
-   SIDEBAR
-===================================================== */
-
-#sidebar {
-
-    position: fixed;
-
-    left: 0;
-
-    top: 0;
-
-    bottom: 0;
-
-    width: 270px;
-
-    background: #f7f7f8;
-
-    z-index: 500;
-
-    padding: 12px;
-
-    box-sizing: border-box;
-
-    transform: translateX(-100%);
-
-    transition: transform 0.22s ease;
-
-    box-shadow:
-        4px 0 18px rgba(0,0,0,0.08);
-}
-
-
-#sidebar.open {
-
-    transform: translateX(0);
-}
-
-
-.sidebar-title {
-
-    font-size: 19px;
-
-    font-weight: 700;
-
-    padding: 10px;
-}
-
-
-.sidebar-item {
-
-    width: 100%;
-
-    border: none;
-
-    background: transparent;
-
-    text-align: left;
-
-    padding: 12px;
-
-    margin: 3px 0;
-
-    border-radius: 10px;
-
-    font-size: 15px;
-
-    cursor: pointer;
-}
-
-
-.sidebar-item:hover {
-
-    background: #e9e9e9;
-}
-
-
-.sidebar-close {
-
-    float: right;
-
-    border: none;
-
-    background: transparent;
-
     font-size: 20px;
+    font-weight: 700;
 }
-
-
-/* =====================================================
-   MAIN
-===================================================== */
 
 #main-area {
-
     width: 100%;
-
     min-height: 100vh;
-
-    box-sizing: border-box;
-
     padding-bottom: 100px;
 }
 
-
-/* =====================================================
-   SPEAKER
-===================================================== */
-
-#speaker-container {
-
-    position: sticky;
-
-    top: 58px;
-
-    z-index: 150;
-}
-
-
-#speaker-bar {
-
-    display: flex;
-
-    align-items: center;
-
-    gap: 7px;
-
-    padding: 8px 12px;
-
-    margin: 6px 12px;
-
-    border-radius: 14px;
-
-    background: #f1f3f4;
-
-    box-shadow:
-        0 2px 8px rgba(0,0,0,0.06);
-}
-
-
-#speaker-title {
-
-    flex: 1;
-
-    font-weight: 600;
-}
-
-
-#speaker-bar button {
-
-    border: none;
-
-    background: white;
-
-    border-radius: 9px;
-
-    padding: 7px 9px;
-
-    font-size: 16px;
-
-    cursor: pointer;
-}
-
-
-/* =====================================================
-   CHAT
-===================================================== */
-
-#history-display {
-
-    width: 100%;
-
-    box-sizing: border-box;
-}
-
-
 #chat-container {
-
-    height: calc(100vh - 150px);
-
+    height: calc(100vh - 155px);
     min-height: 400px;
-
     overflow-y: auto;
-
     scroll-behavior: smooth;
-
-    padding:
-        25px
-        max(16px, calc((100% - 850px) / 2))
-        130px;
-
+    padding: 30px 15px 140px;
     box-sizing: border-box;
 }
-
-
-/* =====================================================
-   WELCOME
-===================================================== */
-
-.welcome-screen {
-
-    max-width: 850px;
-
-    margin: auto;
-
-    text-align: center;
-
-    padding-top: 65px;
-}
-
-
-.welcome-logo {
-
-    font-size: 58px;
-
-    margin-bottom: 10px;
-}
-
-
-.welcome-screen h1 {
-
-    font-size: 31px;
-
-    margin: 5px 0 8px;
-}
-
-
-.welcome-screen p {
-
-    font-size: 17px;
-
-    opacity: 0.6;
-}
-
-
-/* =====================================================
-   SUGGESTIONS
-===================================================== */
-
-.suggestion-grid {
-
-    display: grid;
-
-    grid-template-columns:
-        repeat(2, minmax(0, 1fr));
-
-    gap: 12px;
-
-    margin-top: 35px;
-}
-
-
-.suggestion-card {
-
-    text-align: left;
-
-    border: 1px solid #e5e5e5;
-
-    border-radius: 15px;
-
-    padding: 16px;
-
-    background: #ffffff;
-
-    cursor: pointer;
-
-    transition: 0.15s;
-}
-
-
-.suggestion-card:hover {
-
-    background: #f7f7f7;
-
-    transform: translateY(-1px);
-}
-
-
-.suggestion-card b {
-
-    display: block;
-
-    margin-top: 7px;
-}
-
-
-.suggestion-card span {
-
-    display: block;
-
-    font-size: 13px;
-
-    opacity: 0.6;
-
-    margin-top: 4px;
-}
-
-
-/* =====================================================
-   MESSAGES
-===================================================== */
 
 .message-block {
-
     max-width: 850px;
-
-    margin: 0 auto 28px;
+    margin: 0 auto 30px;
 }
-
 
 .message-label {
-
     font-size: 13px;
-
     font-weight: 600;
-
     opacity: 0.65;
-
-    margin-bottom: 6px;
+    margin: 8px 0 6px;
 }
-
 
 .user-bubble {
-
     background: #f1f1f1;
-
     border-radius: 17px;
-
     padding: 12px 15px;
-
-    white-space: pre-wrap;
-
-    overflow-wrap: anywhere;
-
     display: inline-block;
-
     max-width: 90%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
-
 .ai-bubble {
-
-    padding: 2px 0;
-
     white-space: pre-wrap;
-
     overflow-wrap: anywhere;
-
     line-height: 1.6;
-
     font-size: 15px;
 }
 
-
-/* =====================================================
-   ANSWER BUTTONS
-===================================================== */
-
 .answer-actions {
-
     display: flex;
-
     gap: 3px;
-
     margin-top: 8px;
 }
 
-
 .answer-btn {
+    border: none !important;
+    background: transparent !important;
+    border-radius: 9px !important;
+    padding: 6px 8px !important;
+    font-size: 16px !important;
+    cursor: pointer !important;
+}
 
+.answer-btn:hover {
+    background: #eeeeee !important;
+}
+
+.welcome-screen {
+    max-width: 850px;
+    margin: auto;
+    text-align: center;
+    padding-top: 55px;
+}
+
+.welcome-logo {
+    font-size: 58px;
+}
+
+.welcome-screen h1 {
+    font-size: 31px;
+    margin: 6px 0;
+}
+
+.welcome-screen p {
+    opacity: 0.6;
+}
+
+.suggestion-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 30px;
+}
+
+.suggestion-card {
+    text-align: left;
+    border: 1px solid #e5e5e5;
+    border-radius: 15px;
+    padding: 16px;
+    background: #ffffff;
+    cursor: pointer;
+    font: inherit;
+}
+
+.suggestion-card b {
+    display: block;
+    margin-top: 7px;
+}
+
+.suggestion-card span {
+    display: block;
+    font-size: 13px;
+    opacity: 0.6;
+    margin-top: 4px;
+}
+
+#speaker-container {
+    position: sticky;
+    top: 58px;
+    z-index: 80;
+}
+
+#speaker-bar {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 12px;
+    margin: 6px 12px;
+    border-radius: 14px;
+    background: #f1f3f4;
+}
+
+#speaker-bar span {
+    flex: 1;
+    font-weight: 600;
+}
+
+#speaker-bar button {
     border: none;
-
-    background: transparent;
-
+    background: #ffffff;
     border-radius: 9px;
-
-    padding: 6px 8px;
-
-    font-size: 16px;
-
+    padding: 7px 9px;
     cursor: pointer;
 }
 
-
-.answer-btn:hover {
-
-    background: #eeeeee;
+#input-area {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 120;
+    background: rgba(255,255,255,0.97);
+    border-top: 1px solid #eeeeee;
+    padding: 8px 10px;
 }
 
-
-/* =====================================================
-   SEARCH
-===================================================== */
-
-.search-status {
-
-    text-align: center;
-
-    font-size: 12px;
-
-    opacity: 0.65;
-
-    padding: 4px 10px;
+#input-row {
+    max-width: 850px;
+    margin: auto;
+    display: flex;
+    align-items: flex-end;
+    gap: 7px;
 }
 
+#question textarea {
+    border-radius: 18px !important;
+}
+
+#mic-button button,
+#send-button button {
+    min-width: 48px !important;
+    height: 48px !important;
+    border-radius: 15px !important;
+    font-size: 20px !important;
+}
 
 .sources-box {
-
     max-width: 850px;
-
-    margin: 4px auto 12px;
-
+    margin: 5px auto 15px;
     padding: 10px 14px;
-
     border: 1px solid #e6e6e6;
-
     border-radius: 12px;
-
     background: #fafafa;
 }
 
-
 .sources-title {
-
     font-weight: 700;
-
     margin-bottom: 7px;
 }
 
-
 .source-link {
-
     display: block;
-
     padding: 4px 0;
+    font-size: 13px;
+}
 
-    font-size:
+.search-status {
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.65;
+    padding: 5px;
+}
+
+.error-box {
+    max-width: 850px;
+    margin: 10px auto;
+    padding: 10px;
+    border-radius: 10px;
+    background: #fff0f0;
+}
+
+@media (max-width: 650px) {
+
+    .suggestion-grid {
+        grid-template-columns: 1fr;
+    }
+
+    #chat-container {
+        min-height: 300px;
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .welcome-screen {
+        padding-top: 35px;
+    }
+}
+"""
+
+
+# =========================================================
+# JAVASCRIPT
+# =========================================================
+
+js = r"""
+() => {
+
+    const root = document;
+
+    function speak(text) {
+
+        if (!text) {
+            return;
+        }
+
+        if (!window.speechSynthesis) {
+            return;
+        }
+
+        window.speechSynthesis.cancel();
+
+        const utterance =
+            new SpeechSynthesisUtterance(text);
+
+        utterance.lang = "hi-IN";
+        utterance.rate = 0.9;
+
+        window.speechSynthesis.speak(
+            utterance
+        );
+    }
+
+
+    root.addEventListener(
+        "click",
+        function(event) {
+
+            const suggestion =
+                event.target.closest(
+                    ".suggestion-card"
+                );
+
+            if (suggestion) {
+
+                const prompt =
+                    suggestion.dataset.prompt || "";
+
+                const box =
+                    root.querySelector(
+                        "#question textarea"
+                    );
+
+                if (box) {
+
+                    box.value = prompt;
+
+                    box.dispatchEvent(
+                        new Event(
+                            "input",
+                            {
+                                bubbles: true
+                            }
+                        )
+                    );
+
+                    box.focus();
+                }
+
+                return;
+            }
+
+
+            const speakButton =
+                event.target.closest(
+                    ".speak-btn"
+                );
+
+            if (speakButton) {
+
+                try {
+
+                    const text =
+                        JSON.parse(
+                            speakButton.dataset.answer
+                        );
+
+                    speak(text);
+
+                } catch (error) {
+                }
+
+                return;
+            }
+
+
+            const copyButton =
+                event.target.closest(
+                    ".copy-btn"
+                );
+
+            if (copyButton) {
+
+                try {
+
+                    const text =
+                        JSON.parse(
+                            copyButton.dataset.answer
+                        );
+
+                    if (
+                        navigator.clipboard
+                    ) {
+
+                        navigator.clipboard.writeText(
+                            text
+                        );
+                    }
+
+                } catch (error) {
+                }
+
+                return;
+            }
+
+
+            const shareButton =
+                event.target.closest(
+                    ".share-btn"
+                );
+
+            if (shareButton) {
+
+                try {
+
+                    const text =
+                        JSON.parse(
+                            shareButton.dataset.answer
+                        );
+
+                    if (
+                        navigator.share
+                    ) {
+
+                        navigator.share({
+                            title: "Nexora AI",
+                            text: text
+                        });
+
+                    } else if (
+                        navigator.clipboard
+                    ) {
+
+                        navigator.clipboard.writeText(
+                            text
+                        );
+                    }
+
+                } catch (error) {
+                }
+
+                return;
+            }
+
+
+            if (
+                
