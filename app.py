@@ -1,833 +1,823 @@
 import os
 import html
 import json
+import base64
 
 import gradio as gr
 from google import genai
+from google.genai import types
 
 
 # =========================================================
-# GEMINI API
+# SETTINGS
 # =========================================================
 
-API_KEY = os.environ["GEMINI_API_KEY"]
+API_KEY = os.environ.get("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise RuntimeError("GEMINI_API_KEY Render Environment Variables में सेट नहीं है।")
+
 client = genai.Client(api_key=API_KEY)
 
+MODEL = "gemini-3.5-flash-lite"
+MAX_HISTORY = 10
+
 
 # =========================================================
-# CHAT FUNCTION
+# WEB SEARCH DETECTION
 # =========================================================
 
-def nexora_ai(message, history=None):
-    if not message or not message.strip():
-        return (
-            history or [],
-            "",
-            "## 🗂️ Chat History\n\nअभी कोई बातचीत नहीं हुई।",
-            "",
-        )
+def needs_web_search(text):
+    keywords = [
+        "latest",
+        "today",
+        "current",
+        "news",
+        "recent",
+        "now",
+        "live",
+        "price",
+        "weather",
+        "मौसम",
+        "आज",
+        "अभी",
+        "वर्तमान",
+        "ताज़ा",
+        "समाचार",
+        "न्यूज़",
+        "कीमत",
+        "लेटेस्ट",
+        "2026",
+        "2025"
+    ]
+
+    text = text.lower()
+
+    for word in keywords:
+        if word.lower() in text:
+            return True
+
+    return False
+
+
+# =========================================================
+# HISTORY TEXT
+# =========================================================
+
+def make_history(history):
+    if not history:
+        return "कोई पिछली बातचीत नहीं।"
+
+    result = []
+
+    for user_text, ai_text in history[-MAX_HISTORY:]:
+        result.append("User: " + user_text)
+        result.append("Nexora AI: " + ai_text)
+
+    return "\n".join(result)
+
+
+# =========================================================
+# SOURCE EXTRACTION
+# =========================================================
+
+def get_sources(response):
+    sources = []
 
     try:
-        history = history or []
+        candidates = getattr(response, "candidates", None)
 
-        old_chat = ""
+        if not candidates:
+            return []
 
-        for user_msg, ai_msg in history:
-            old_chat += (
-                f"User: {user_msg}\n"
-                f"Nexora AI: {ai_msg}\n\n"
-            )
+        metadata = getattr(
+            candidates[0],
+            "grounding_metadata",
+            None
+        )
+
+        if not metadata:
+            return []
+
+        chunks = getattr(
+            metadata,
+            "grounding_chunks",
+            None
+        )
+
+        if not chunks:
+            return []
+
+        for chunk in chunks:
+            web_data = getattr(chunk, "web", None)
+
+            if web_data:
+                uri = getattr(web_data, "uri", None)
+                title = getattr(web_data, "title", None)
+
+                if uri:
+                    found = False
+
+                    for old_uri, old_title in sources:
+                        if old_uri == uri:
+                            found = True
+                            break
+
+                    if not found:
+                        sources.append(
+                            (
+                                uri,
+                                title or "वेब स्रोत"
+                            )
+                        )
+
+    except Exception:
+        return []
+
+    return sources[:6]
+
+
+# =========================================================
+# SOURCE HTML
+# =========================================================
+
+def sources_html(response):
+    sources = get_sources(response)
+
+    if not sources:
+        return ""
+
+    result = [
+        '<div class="sources">',
+        '<div class="sources-title">🌐 वेब स्रोत</div>'
+    ]
+
+    for uri, title in sources:
+        safe_uri = html.escape(uri, quote=True)
+        safe_title = html.escape(title)
+
+        result.append(
+            '<a class="source-link" href="'
+            + safe_uri
+            + '" target="_blank" rel="noopener">'
+            + safe_title
+            + "</a>"
+        )
+
+    result.append("</div>")
+
+    return "".join(result)
+
+
+# =========================================================
+# CHAT HTML
+# =========================================================
+
+def make_chat_html(history):
+    if not history:
+        return (
+            '<div class="welcome">'
+            '<div class="robot">🤖</div>'
+            '<h1>Nexora AI</h1>'
+            '<p>आप अपनी भाषा में कुछ भी पूछ सकते हैं।</p>'
+            '<div class="suggestions">'
+            '<button class="suggestion">भारत की राजधानी क्या है?</button>'
+            '<button class="suggestion">आज की ताज़ा खबरें बताओ</button>'
+            '<button class="suggestion">मुझे Python सिखाओ</button>'
+            '<button class="suggestion">एक मजेदार कहानी सुनाओ</button>'
+            '</div>'
+            '</div>'
+        )
+
+    result = []
+
+    for user_text, ai_text in history:
+        safe_user = html.escape(user_text)
+        safe_ai = html.escape(ai_text)
+
+        answer_json = json.dumps(
+            ai_text,
+            ensure_ascii=False
+        )
+
+        result.append(
+            '<div class="message-block">'
+
+            '<div class="user-message">'
+            '<div class="user-label">👤 आप</div>'
+            '<div class="user-bubble">'
+            + safe_user +
+            '</div>'
+            '</div>'
+
+            '<div class="ai-message">'
+            '<div class="ai-label">🤖 Nexora AI</div>'
+            '<div class="ai-bubble">'
+            + safe_ai.replace("\n", "<br>") +
+            '</div>'
+
+            '<div class="answer-actions">'
+
+            '<button class="answer-btn like-btn">'
+            '👍'
+            '</button>'
+
+            '<button class="answer-btn dislike-btn">'
+            '👎'
+            '</button>'
+
+            '<button class="answer-btn speak-btn" data-answer='
+            + html.escape(answer_json, quote=True) +
+            '>'
+            '🔊'
+            '</button>'
+
+            '<button class="answer-btn copy-btn" data-answer='
+            + html.escape(answer_json, quote=True) +
+            '>'
+            '📋'
+            '</button>'
+
+            '<button class="answer-btn share-btn" data-answer='
+            + html.escape(answer_json, quote=True) +
+            '>'
+            '↗️'
+            '</button>'
+
+            '<button class="answer-btn more-btn">'
+            '⋯'
+            '</button>'
+
+            '</div>'
+            '</div>'
+            '</div>'
+        )
+
+    return "".join(result)
+
+
+# =========================================================
+# MAIN AI
+# =========================================================
+
+def nexora_ai(message, history=None, uploaded_file=None):
+    history = history or []
+
+    if not message or not message.strip():
+        return (
+            history,
+            "",
+            make_chat_html(history),
+            "",
+            ""
+        )
+
+    message = message.strip()
+
+    try:
+        old_chat = make_history(history)
+
+        prompt_parts = [
+            "You are Nexora AI, a helpful multilingual AI assistant.",
+            "Understand the user's language automatically.",
+            "Reply in the same language as the user.",
+            "If the user writes Roman Hindi, reply in proper Devanagari Hindi.",
+            "Give clear, useful and natural answers.",
+            "Remember relevant previous conversation.",
+            "Do not invent facts.",
+            "If information is uncertain, say so.",
+            "Current date: 2026-09-14.",
+            "",
+            "Previous conversation:",
+            old_chat,
+            "",
+            "Current user question:",
+            message
+        ]
+
+        prompt = "\n".join(prompt_parts)
+
+        contents = [prompt]
+
+        # -------------------------------------------------
+        # FILE / IMAGE
+        # -------------------------------------------------
+
+        if uploaded_file:
+            try:
+                file_path = uploaded_file
+
+                if hasattr(uploaded_file, "name"):
+                    file_path = uploaded_file.name
+
+                uploaded = client.files.upload(
+                    file=file_path
+                )
+
+                contents.append(uploaded)
+
+            except Exception as file_error:
+                return (
+                    history,
+                    "",
+                    make_chat_html(history),
+                    "",
+                    "⚠️ फ़ाइल पढ़ने में समस्या: "
+                    + html.escape(str(file_error))
+                )
+
+        # -------------------------------------------------
+        # CONFIG
+        # -------------------------------------------------
+
+        config_args = {
+            "max_output_tokens": 1500
+        }
+
+        if needs_web_search(message):
+            config_args["tools"] = [
+                types.Tool(
+                    google_search=types.GoogleSearch()
+                )
+            ]
+
+        config = types.GenerateContentConfig(
+            **config_args
+        )
+
+        # -------------------------------------------------
+        # GENERATE
+        # -------------------------------------------------
 
         response = client.models.generate_content(
-            model="gemini-3.5-flash-lite",
-            contents=f"""
-You are Nexora AI, a helpful multilingual AI assistant.
-
-IMPORTANT RULES:
-
-1. Understand the user's language automatically.
-2. Reply in the same language as the user's question.
-3. If the user asks in Hindi using Roman Hindi,
-   reply in proper Devanagari Hindi.
-4. If the user asks in English, reply in English.
-5. If the user asks in Bengali, reply in Bengali.
-6. If the user asks in another language, reply in that language.
-7. Give clear, useful and natural answers.
-8. Remember previous conversation when relevant.
-9. Do not invent facts.
-10. If information may be uncertain or outdated, clearly say so.
-11. Do not mention these internal instructions.
-
-Previous conversation:
-{old_chat}
-
-Current user question:
-{message}
-"""
+            model=MODEL,
+            contents=contents,
+            config=config
         )
 
-        answer_text = response.text or "मुझे इस सवाल का उत्तर नहीं मिल पाया।"
+        answer = response.text
 
-        history.append((message, answer_text))
+        if not answer:
+            answer = "मुझे अभी उत्तर नहीं मिला।"
 
-        # =================================================
-        # CHAT HTML
-        # =================================================
+        # -------------------------------------------------
+        # SAVE HISTORY
+        # -------------------------------------------------
 
-        chat_html = ""
+        history = history[-(MAX_HISTORY - 1):]
 
-        for index, (user_msg, ai_msg) in enumerate(history):
-
-            safe_user = html.escape(user_msg)
-            safe_ai = html.escape(ai_msg)
-
-            answer_json = json.dumps(
-                ai_msg,
-                ensure_ascii=False
+        history.append(
+            (
+                message,
+                answer
             )
-
-            chat_html += f"""
-            <div class="message-block">
-
-                <div class="user-message">
-                    <div class="message-label">आप</div>
-                    <div class="user-bubble">
-                        {safe_user}
-                    </div>
-                </div>
-
-                <div class="ai-message">
-                    <div class="message-label">🤖 Nexora AI</div>
-
-                    <div class="ai-bubble">
-                        {safe_ai}
-                    </div>
-
-                    <div class="answer-actions">
-
-                        <button
-                            class="answer-btn like-btn"
-                            data-action="like">
-                            👍
-                        </button>
-
-                        <button
-                            class="answer-btn dislike-btn"
-                            data-action="dislike">
-                            👎
-                        </button>
-
-                        <button
-                            class="answer-btn speak-btn"
-                            data-answer='{answer_json}'>
-                            🔊
-                        </button>
-
-                        <button
-                            class="answer-btn copy-btn"
-                            data-answer='{answer_json}'>
-                            📋
-                        </button>
-
-                        <button
-                            class="answer-btn share-btn"
-                            data-answer='{answer_json}'>
-                            ↗️
-                        </button>
-
-                        <button
-                            class="answer-btn more-btn"
-                            data-action="more">
-                            ⋯
-                        </button>
-
-                    </div>
-                </div>
-
-            </div>
-            """
-
-        history_display = (
-            "## 🗂️ Chat History\n\n"
-            + chat_html
         )
 
-        # =================================================
-        # TOP SPEAKER BAR
-        # =================================================
+        # -------------------------------------------------
+        # SPEAKER
+        # -------------------------------------------------
 
-        sound_bar = f"""
-        <div id="speaker-bar">
+        speaker_text = json.dumps(
+            answer,
+            ensure_ascii=False
+        )
 
-            <span id="speaker-title">
-                🔊 Nexora AI
-            </span>
+        speaker = (
+            '<div id="speaker-bar" data-answer='
+            + html.escape(speaker_text, quote=True)
+            + '>'
 
-            <button id="pause-speech">
-                ⏸️
-            </button>
+            '<span class="speaker-name">'
+            '🔊 Nexora AI'
+            '</span>'
 
-            <button id="stop-speech">
-                ⏹️
-            </button>
+            '<button id="speaker-play">▶️</button>'
+            '<button id="speaker-pause">⏸️</button>'
+            '<button id="speaker-stop">⏹️</button>'
+            '<button id="speaker-settings">⚙️</button>'
+            '<button id="speaker-close">✕</button>'
 
-            <button id="close-speaker">
-                ✕
-            </button>
-
-        </div>
-        """
+            '</div>'
+        )
 
         return (
             history,
             "",
-            history_display,
-            sound_bar,
+            make_chat_html(history),
+            sources_html(response),
+            speaker
         )
 
     except Exception as e:
         return (
-            history or [],
+            history,
             "",
-            f"❌ समस्या: {html.escape(str(e))}",
+            make_chat_html(history),
             "",
+            "❌ समस्या: "
+            + html.escape(str(e))
         )
 
 
 # =========================================================
-# STATUS BUTTON FUNCTIONS
+# NEW CHAT
 # =========================================================
 
-def like():
-    return "👍 पसंद किया गया"
-
-
-def dislike():
-    return "👎 प्रतिक्रिया दर्ज हुई"
-
-
-def more():
-    return "⋯ विकल्प"
+def new_chat():
+    return (
+        [],
+        make_chat_html([]),
+        "",
+        "",
+        ""
+    )
 
 
 # =========================================================
 # CSS
 # =========================================================
 
-css = r"""
-/* =========================================
-   MAIN APP
-========================================= */
+css = "\n".join([
+    "body {",
+    "    margin: 0;",
+    "    background: #ffffff !important;",
+    "}",
 
-body {
-    background: #ffffff !important;
-}
+    ".gradio-container {",
+    "    max-width: 920px !important;",
+    "    margin: auto !important;",
+    "    padding-bottom: 110px !important;",
+    "}",
 
-.gradio-container {
-    max-width: 900px !important;
-    margin: auto !important;
-    padding-bottom: 95px !important;
-}
+    "#header {",
+    "    text-align: center;",
+    "    padding: 12px 0;",
+    "}",
 
-/* =========================================
-   HEADER
-========================================= */
+    "#title {",
+    "    font-size: 28px;",
+    "    font-weight: 700;",
+    "}",
 
-#nexora-header {
-    text-align: center;
-    padding: 10px 0 4px 0;
-}
+    "#subtitle {",
+    "    opacity: .6;",
+    "    font-size: 14px;",
+    "}",
 
-#nexora-title {
-    font-size: 27px;
-    font-weight: 700;
-}
+    "#chat-container {",
+    "    height: calc(100vh - 245px);",
+    "    min-height: 400px;",
+    "    overflow-y: auto;",
+    "    padding: 15px 8px 130px 8px;",
+    "    scroll-behavior: smooth;",
+    "}",
 
-#nexora-subtitle {
-    font-size: 14px;
-    opacity: 0.65;
-}
+    ".welcome {",
+    "    text-align: center;",
+    "    padding-top: 55px;",
+    "}",
 
-/* =========================================
-   SPEAKER BAR
-========================================= */
+    ".robot {",
+    "    font-size: 60px;",
+    "}",
 
-#speaker-container {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-}
+    ".welcome h1 {",
+    "    font-size: 34px;",
+    "    margin: 8px;",
+    "}",
 
-#speaker-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    margin: 5px 0 10px 0;
-    border-radius: 14px;
-    background: #f1f3f4;
-}
+    ".welcome p {",
+    "    opacity: .6;",
+    "}",
 
-#speaker-title {
-    flex: 1;
-    font-weight: 600;
-}
+    ".suggestions {",
+    "    display: flex;",
+    "    flex-wrap: wrap;",
+    "    justify-content: center;",
+    "    gap: 9px;",
+    "    margin-top: 25px;",
+    "}",
 
-#speaker-bar button {
-    border: none;
-    border-radius: 10px;
-    padding: 7px 10px;
-    cursor: pointer;
-    background: #ffffff;
-    font-size: 17px;
-}
+    ".suggestion {",
+    "    border: 1px solid #ddd;",
+    "    background: white;",
+    "    border-radius: 18px;",
+    "    padding: 10px 14px;",
+    "    cursor: pointer;",
+    "}",
 
-/* =========================================
-   CHAT AREA
-========================================= */
+    ".message-block {",
+    "    margin-bottom: 28px;",
+    "}",
 
-#chat-container {
-    height: calc(100vh - 235px);
-    min-height: 390px;
-    overflow-y: auto;
-    padding: 10px 5px 120px 5px;
-    scroll-behavior: smooth;
-}
+    ".user-label, .ai-label {",
+    "    font-size: 13px;",
+    "    font-weight: 600;",
+    "    opacity: .65;",
+    "    margin-bottom: 5px;",
+    "}",
 
-.message-block {
-    margin-bottom: 22px;
-}
+    ".user-bubble {",
+    "    background: #f1f3f4;",
+    "    border-radius: 17px;",
+    "    padding: 12px 15px;",
+    "    white-space: pre-wrap;",
+    "    overflow-wrap: anywhere;",
+    "}",
 
-.message-label {
-    font-size: 13px;
-    font-weight: 600;
-    opacity: 0.65;
-    margin-bottom: 5px;
-}
+    ".ai-bubble {",
+    "    padding: 4px 2px;",
+    "    line-height: 1.6;",
+    "    white-space: normal;",
+    "    overflow-wrap: anywhere;",
+    "}",
 
-.user-message {
-    margin-bottom: 13px;
-}
+    ".answer-actions {",
+    "    display: flex;",
+    "    gap: 4px;",
+    "    margin-top: 8px;",
+    "}",
 
-.user-bubble {
-    background: #f1f3f4;
-    border-radius: 16px;
-    padding: 11px 14px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
+    ".answer-btn {",
+    "    border: 0;",
+    "    background: transparent;",
+    "    padding: 6px 8px;",
+    "    border-radius: 9px;",
+    "    cursor: pointer;",
+    "    font-size: 17px;",
+    "}",
 
-.ai-bubble {
-    padding: 2px 3px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    line-height: 1.55;
-}
+    ".answer-btn:hover {",
+    "    background: #f1f3f4;",
+    "}",
 
-/* =========================================
-   ANSWER BUTTONS
-========================================= */
+    "#speaker-container {",
+    "    position: sticky;",
+    "    top: 0;",
+    "    z-index: 60;",
+    "}",
 
-.answer-actions {
-    display: flex;
-    gap: 5px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-}
+    "#speaker-bar {",
+    "    display: flex;",
+    "    align-items: center;",
+    "    gap: 6px;",
+    "    background: #f1f3f4;",
+    "    padding: 8px 10px;",
+    "    border-radius: 14px;",
+    "    margin-bottom: 8px;",
+    "}",
 
-.answer-btn {
-    border: none;
-    background: transparent;
-    padding: 6px 8px;
-    border-radius: 9px;
-    cursor: pointer;
-    font-size: 17px;
-}
+    ".speaker-name {",
+    "    flex: 1;",
+    "    font-weight: 600;",
+    "}",
 
-.answer-btn:hover {
-    background: #f1f3f4;
-}
+    "#speaker-bar button {",
+    "    border: 0;",
+    "    background: white;",
+    "    border-radius: 9px;",
+    "    padding: 7px 9px;",
+    "    cursor: pointer;",
+    "}",
 
-/* =========================================
-   INPUT AREA
-========================================= */
+    ".sources {",
+    "    margin: 8px 5px;",
+    "    padding: 10px;",
+    "    border-top: 1px solid #eee;",
+    "}",
 
-#input-area {
-    position: fixed;
-    left: 50%;
-    bottom: 8px;
-    transform: translateX(-50%);
-    width: min(880px, calc(100% - 18px));
-    z-index: 100;
-    background: rgba(255,255,255,0.97);
-    padding: 8px;
-    border-radius: 18px;
-    box-shadow: 0 2px 18px rgba(0,0,0,0.12);
-}
+    ".sources-title {",
+    "    font-weight: 600;",
+    "    margin-bottom: 5px;",
+    "}",
 
-#question-box textarea {
-    border-radius: 15px !important;
-    padding: 13px 50px 13px 14px !important;
-    min-height: 48px !important;
-    max-height: 130px !important;
-}
+    ".source-link {",
+    "    display: block;",
+    "    padding: 4px 0;",
+    "    text-decoration: none;",
+    "    overflow-wrap: anywhere;",
+    "}",
 
-#mic-button button {
-    border-radius: 13px !important;
-    min-width: 50px !important;
-    height: 48px !important;
-    font-size: 21px !important;
-}
+    "#input-area {",
+    "    position: fixed;",
+    "    z-index: 100;",
+    "    left: 50%;",
+    "    bottom: 7px;",
+    "    transform: translateX(-50%);",
+    "    width: min(900px, calc(100% - 12px));",
+    "    background: rgba(255,255,255,.98);",
+    "    padding: 8px;",
+    "    border-radius: 18px;",
+    "    box-shadow: 0 2px 18px rgba(0,0,0,.14);",
+    "}",
 
-#send-button button {
-    border-radius: 13px !important;
-    min-width: 52px !important;
-    height: 48px !important;
-    font-size: 20px !important;
-}
+    "#question textarea {",
+    "    min-height: 48px !important;",
+    "    max-height: 130px !important;",
+    "    border-radius: 17px !important;",
+    "    padding: 12px 14px !important;",
+    "}",
 
-/* =========================================
-   MOBILE
-========================================= */
+    "#mic button, #send button {",
+    "    min-width: 50px !important;",
+    "    height: 48px !important;",
+    "    border-radius: 14px !important;",
+    "    font-size: 20px !important;",
+    "}",
 
-@media (max-width: 600px) {
+    "#voice-panel {",
+    "    display: none;",
+    "    position: fixed;",
+    "    z-index: 200;",
+    "    left: 50%;",
+    "    top: 50%;",
+    "    transform: translate(-50%,-50%);",
+    "    width: min(400px, 90%);",
+    "    background: white;",
+    "    border: 1px solid #ddd;",
+    "    border-radius: 20px;",
+    "    padding: 20px;",
+    "    box-shadow: 0 5px 30px rgba(0,0,0,.25);",
+    "}",
 
-    .gradio-container {
-        padding-left: 8px !important;
-        padding-right: 8px !important;
-    }
+    "#voice-select {",
+    "    width: 100%;",
+    "    padding: 10px;",
+    "    margin-top: 10px;",
+    "}",
 
-    #nexora-title {
-        font-size: 23px;
-    }
+    "#new-chat button {",
+    "    border-radius: 18px !important;",
+    "}",
 
-    #chat-container {
-        height: calc(100vh - 210px);
-        padding-bottom: 115px;
-    }
-
-    #input-area {
-        width: calc(100% - 12px);
-        bottom: 5px;
-    }
-
-    .answer-btn {
-        font-size: 16px;
-        padding: 5px 7px;
-    }
-}
-"""
+    "@media(max-width:600px) {",
+    "    #title { font-size: 23px; }",
+    "    #chat-container {",
+    "        height: calc(100vh - 220px);",
+    "    }",
+    "    .welcome { padding-top: 35px; }",
+    "    .welcome h1 { font-size: 28px; }",
+    "    #input-area {",
+    "        width: calc(100% - 8px);",
+    "        bottom: 4px;",
+    "    }",
+    "}"
+])
 
 
 # =========================================================
 # JAVASCRIPT
 # =========================================================
 
-js = r"""
-() => {
+js_lines = [
 
-    // -----------------------------------------
-    // AUTO SCROLL
-    // -----------------------------------------
+    "let recognition = null;",
+    "let listening = false;",
+    "let selectedVoice = null;",
 
-    function scrollChat() {
-        const box = document.querySelector("#chat-container");
+    "",
 
-        if (box) {
-            setTimeout(() => {
-                box.scrollTop = box.scrollHeight;
-            }, 150);
-        }
-    }
+    "function scrollChat() {",
+    "    const box = document.querySelector('#chat-container');",
+    "    if (box) {",
+    "        setTimeout(function() {",
+    "            box.scrollTop = box.scrollHeight;",
+    "        }, 150);",
+    "    }",
+    "}",
 
-    scrollChat();
+    "",
 
+    "function setQuestion(text) {",
+    "    const box = document.querySelector('#question textarea');",
+    "    if (!box) return;",
+    "    box.value = text;",
+    "    box.dispatchEvent(new Event('input', {bubbles:true}));",
+    "    box.dispatchEvent(new Event('change', {bubbles:true}));",
+    "    box.focus();",
+    "}",
 
-    // -----------------------------------------
-    // SPEECH RECOGNITION / MIC
-    // -----------------------------------------
+    "",
+
+    "function stopSpeech() {",
+    "    if ('speechSynthesis' in window) {",
+    "        speechSynthesis.cancel();",
+    "    }",
+    "}",
+
+    "",
+
+    "function speakText(text) {",
+    "    if (!('speechSynthesis' in window)) {",
+    "        alert('इस ब्राउज़र में आवाज़ सुविधा उपलब्ध नहीं है।');",
+    "        return;",
+    "    }",
 
-    let recognition = null;
-    let listening = false;
+    "    stopSpeech();",
 
-    function startMic() {
+    "    const utterance = new SpeechSynthesisUtterance(text);",
 
-        const SpeechRecognition =
-            window.SpeechRecognition ||
-            window.webkitSpeechRecognition;
+    "    if (selectedVoice) {",
+    "        utterance.voice = selectedVoice;",
+    "    }",
 
-        if (!SpeechRecognition) {
-            alert("इस ब्राउज़र में माइक्रोफोन सुविधा उपलब्ध नहीं है।");
-            return;
-        }
+    "    utterance.rate = 0.9;",
+    "    speechSynthesis.speak(utterance);",
+    "}",
 
-        if (listening && recognition) {
-            recognition.stop();
-            return;
-        }
+    "",
 
-        recognition = new SpeechRecognition();
+    "function loadVoices() {",
+    "    const select = document.querySelector('#voice-select');",
+    "    if (!select || !('speechSynthesis' in window)) return;",
 
-        recognition.lang = "hi-IN";
-        recognition.continuous = false;
-        recognition.interimResults = false;
+    "    const voices = speechSynthesis.getVoices();",
 
-        recognition.onstart = () => {
-            listening = true;
+    "    select.innerHTML = '';",
 
-            const btn =
-                document.querySelector("#mic-button button");
+    "    voices.slice(0, 25).forEach(function(voice) {",
+    "        const option = document.createElement('option');",
+    "        option.value = voice.name;",
+    "        option.textContent = voice.name + ' — ' + voice.lang;",
+    "        select.appendChild(option);",
+    "    });",
+    "}",
 
-            if (btn) {
-                btn.innerText = "🛑";
-            }
-        };
+    "",
 
-        recognition.onresult = (event) => {
+    "function openVoiceSettings() {",
+    "    const panel = document.querySelector('#voice-panel');",
+    "    if (!panel) return;",
+    "    panel.style.display = 'block';",
+    "    loadVoices();",
+    "}",
 
-            const text =
-                event.results[0][0].transcript;
+    "",
 
-            const textarea =
-                document.querySelector("#question-box textarea");
+    "function closeVoiceSettings() {",
+    "    const panel = document.querySelector('#voice-panel');",
+    "    if (panel) panel.style.display = 'none';",
+    "}",
 
-            if (textarea) {
+    "",
 
-                textarea.value = text;
+    "function startMic() {",
 
-                textarea.dispatchEvent(
-                    new Event("input", {bubbles: true})
-                );
+    "    const SpeechRecognition =",
+    "        window.SpeechRecognition ||",
+    "        window.webkitSpeechRecognition;",
 
-                textarea.dispatchEvent(
-                    new Event("change", {bubbles: true})
-                );
-            }
-        };
+    "    if (!SpeechRecognition) {",
+    "        alert('इस ब्राउज़र में Voice Input उपलब्ध नहीं है।');",
+    "        return;",
+    "    }",
 
-        recognition.onerror = () => {
-            listening = false;
+    "    if (listening && recognition) {",
+    "        recognition.stop();",
+    "        return;",
+    "    }",
 
-            const btn =
-                document.querySelector("#mic-button button");
+    "    recognition = new SpeechRecognition();",
 
-            if (btn) {
-                btn.innerText = "🎤";
-            }
-        };
+    "    recognition.lang = 'hi-IN';",
+    "    recognition.continuous = false;",
+    "    recognition.interimResults = false;",
 
-        recognition.onend = () => {
-            listening = false;
+    "    recognition.onstart = function() {",
+    "        listening = true;",
+    "        const btn = document.querySelector('#mic button');",
+    "        if (btn) btn.innerText = '🛑';",
+    "    };",
 
-            const btn =
-                document.querySelector("#mic-button button");
+    "    recognition.onresult = function(event) {",
+    "        const text = event.results[0][0].transcript;",
+    "        setQuestion(text);",
+    "    };",
 
-            if (btn) {
-                btn.innerText = "🎤";
-            }
-        };
+    "    recognition.onerror = function() {",
+    "        listening = false;",
+    "        const btn = document.querySelector('#mic button');",
+    "        if (btn) btn.innerText = '🎤';",
+    "    };",
 
-        recognition.start();
-    }
+    "    recognition.onend = function() {",
+    "        listening = false;",
+    "        const btn = document.querySelector('#mic button');",
+    "        if (btn) btn.innerText = '🎤';",
+    "    };",
 
+    "    recognition.start();",
+    "}",
 
-    // -----------------------------------------
-    // MIC BUTTON
-    // -----------------------------------------
+    "",
 
-    document.addEventListener("click", (event) => {
+    "document.addEventListener('click', function(event) {",
 
-        const mic =
-            event.target.closest("#mic-button button");
+    "    const suggestion = event.target.closest('.suggestion');",
 
-        if (mic) {
-            startMic();
-        }
-    });
+    "    if (suggestion) {",
+    "        setQuestion(suggestion.innerText);",
+    "        return;",
+    "    }",
 
-
-    // -----------------------------------------
-    // ANSWER BUTTONS
-    // -----------------------------------------
-
-    document.addEventListener("click", (event) => {
-
-        const button =
-            event.target.closest(".answer-btn");
-
-        if (!button) {
-            return;
-        }
-
-        // LIKE
-        if (button.classList.contains("like-btn")) {
-            button.innerText = "👍✓";
-            return;
-        }
-
-        // DISLIKE
-        if (button.classList.contains("dislike-btn")) {
-            button.innerText = "👎✓";
-            return;
-        }
-
-        // MORE
-        if (button.classList.contains("more-btn")) {
-            alert("Nexora AI के और विकल्प जल्द जोड़े जाएंगे।");
-            return;
-        }
-
-        // COPY
-        if (button.classList.contains("copy-btn")) {
-
-            const text =
-                button.getAttribute("data-answer");
-
-            if (text) {
-                navigator.clipboard.writeText(text);
-                button.innerText = "✓";
-                setTimeout(() => {
-                    button.innerText = "📋";
-                }, 1200);
-            }
-
-            return;
-        }
-
-        // SHARE
-        if (button.classList.contains("share-btn")) {
-
-            const text =
-                button.getAttribute("data-answer");
-
-            if (navigator.share) {
-
-                navigator.share({
-                    title: "Nexora AI",
-                    text: text || "Nexora AI"
-                });
-
-            } else {
-
-                navigator.clipboard.writeText(text || "");
-
-                button.innerText = "✓";
-
-                setTimeout(() => {
-                    button.innerText = "↗️";
-                }, 1200);
-            }
-
-            return;
-        }
-
-        // SPEAK
-        if (button.classList.contains("speak-btn")) {
-
-            const text =
-                button.getAttribute("data-answer");
-
-            if (text) {
-
-                speechSynthesis.cancel();
-
-                const speech =
-                    new SpeechSynthesisUtterance(text);
-
-                speech.lang = "hi-IN";
-                speech.rate = 0.9;
-
-                speechSynthesis.speak(speech);
-            }
-
-            return;
-        }
-
-    });
-
-
-    // -----------------------------------------
-    // TOP SPEAKER BAR
-    // -----------------------------------------
-
-    document.addEventListener("click", (event) => {
-
-        if (event.target.closest("#pause-speech")) {
-
-            if (speechSynthesis.speaking) {
-
-                if (speechSynthesis.paused) {
-                    speechSynthesis.resume();
-                } else {
-                    speechSynthesis.pause();
-                }
-
-            }
-
-            return;
-        }
-
-
-        if (event.target.closest("#stop-speech")) {
-
-            speechSynthesis.cancel();
-
-            return;
-        }
-
-
-        if (event.target.closest("#close-speaker")) {
-
-            const bar =
-                document.querySelector("#speaker-bar");
-
-            if (bar) {
-                bar.remove();
-            }
-
-            speechSynthesis.cancel();
-
-            return;
-        }
-
-    });
-
-
-    // -----------------------------------------
-    // OBSERVE CHAT CHANGES
-    // -----------------------------------------
-
-    const observer = new MutationObserver(() => {
-        scrollChat();
-    });
-
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-
-}
-"""
-
-
-# =========================================================
-# GRADIO UI
-# =========================================================
-
-with gr.Blocks(title="Nexora AI") as app:
-
-    gr.HTML("""
-    <div id="nexora-header">
-        <div id="nexora-title">🤖 Nexora AI</div>
-        <div id="nexora-subtitle">
-            अपनी भाषा में सवाल पूछिए
-        </div>
-    </div>
-    """)
-
-    # Speaker area
-    speaker_container = gr.HTML(
-        "",
-        elem_id="speaker-container"
-    )
-
-    # Chat history
-    history_state = gr.State([])
-
-    history_display = gr.HTML(
-        """
-        <div id="chat-container">
-            <div style="text-align:center; opacity:0.55; padding:50px 10px;">
-                💬 Nexora AI से बातचीत शुरू करें
-            </div>
-        </div>
-        """
-    )
-
-    # Status
-    status = gr.Markdown("")
-
-    # -----------------------------------------
-    # FIXED INPUT
-    # -----------------------------------------
-
-    with gr.Row(elem_id="input-area"):
-
-        question = gr.Textbox(
-            placeholder="💬 अपना सवाल लिखें...",
-            show_label=False,
-            lines=1,
-            max_lines=5,
-            elem_id="question-box",
-            autofocus=True
-        )
-
-        mic_button = gr.Button(
-            "🎤",
-            elem_id="mic-button"
-        )
-
-        send = gr.Button(
-            "➤",
-            variant="primary",
-            elem_id="send-button"
-        )
-
-
-    # -----------------------------------------
-    # SEND
-    # -----------------------------------------
-
-    send.click(
-        nexora_ai,
-        inputs=[question, history_state],
-        outputs=[
-            history_state,
-            question,
-            history_display,
-            speaker_container
-        ]
-    )
-
-    # Enter key से भी सवाल भेजें
-    question.submit(
-        nexora_ai,
-        inputs=[question, history_state],
-        outputs=[
-            history_state,
-            question,
-            history_display,
-            speaker_container
-        ]
-    )
-
-    # -----------------------------------------
-    # STATUS
-    # -----------------------------------------
-
-    like_button = gr.Button(
-        "👍",
-        visible=False
-    )
-
-    dislike_button = gr.Button(
-        "👎",
-        visible=False
-    )
-
-    more_button = gr.Button(
-        "⋯",
-        visible=False
-    )
-
-
-# =========================================================
-# LAUNCH
-# =========================================================
-
-app.launch(
-    server_name=os.environ.get("GRADIO_SERVER_NAME", "0.0.0.0"),
-    server_port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
-    css=css,
-    js=js
-)
+    "    const mic = event.target.closest
