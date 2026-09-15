@@ -11,47 +11,50 @@ MODEL = "gemini-3.5-flash-lite"
 MAX_HISTORY = 10
 
 
-def needs_web_search(text):
+def web_needed(text):
     words = [
         "latest", "today", "current", "news", "weather",
-        "price", "2026", "who is", "what happened",
+        "price", "2026", "search", "who is",
         "आज", "अभी", "वर्तमान", "ताज़ा", "समाचार",
-        "मौसम", "कीमत", "कौन है", "क्या हुआ"
+        "मौसम", "कीमत", "खोज", "कौन है"
     ]
     text = (text or "").lower()
-    return any(word in text for word in words)
+    return any(x in text for x in words)
 
 
-def make_chat_html(history):
+def make_history(history):
     if not history:
         return (
-            '<div id="emptychat">'
-            '👋 नमस्ते! मैं <b>Nexora AI</b> हूँ।<br>'
-            'नीचे अपना सवाल लिखें।'
+            '<div class="welcome">'
+            '<div class="robot">🤖</div>'
+            '<h1>Nexora AI</h1>'
+            '<p>नमस्ते! मैं Nexora AI हूँ।</p>'
+            '<p>नीचे अपना सवाल लिखें।</p>'
             '</div>'
         )
 
-    result = ""
+    out = ""
 
     for user_text, ai_text in history:
-        safe_user = html.escape(user_text)
-        safe_ai = html.escape(ai_text).replace("\n", "<br>")
+        u = html.escape(user_text)
+        a = html.escape(ai_text).replace("\n", "<br>")
 
-        result += (
-            '<div class="user-message">'
-            '<div class="bubble user-bubble">'
-            '<b>आप</b><br>'
-            + safe_user +
+        out += (
+            '<div class="user-row">'
+            '<div class="user-bubble">'
+            + u +
             '</div></div>'
         )
 
-        result += (
-            '<div class="ai-message">'
-            '<div class="bubble ai-bubble">'
-            '<b>🤖 Nexora AI</b><br>'
-            + safe_ai +
+        out += (
+            '<div class="ai-row">'
+            '<div class="ai-bubble">'
+            '<div class="ai-name">🤖 Nexora AI</div>'
+            '<div class="answer-text">'
+            + a +
             '</div>'
-            '<div class="actions">'
+            '</div>'
+            '<div class="answer-actions">'
             '<button onclick="copyAnswer(this)">📋</button>'
             '<button>👍</button>'
             '<button>👎</button>'
@@ -62,167 +65,172 @@ def make_chat_html(history):
             '</div>'
         )
 
-    return result
+    return out
 
 
-def nexora_ai(message, history):
+def ask_ai(message, history):
     history = history or []
 
     if not message or not message.strip():
-        return "", history, make_chat_html(history)
+        return "", history, make_history(history)
+
+    old = ""
+
+    for u, a in history[-MAX_HISTORY:]:
+        old += "User: " + u + "\n"
+        old += "Nexora AI: " + a + "\n"
 
     prompt = (
         "You are Nexora AI, a helpful multilingual AI assistant.\n"
         "Understand the user's language automatically.\n"
         "Reply in the same language as the user.\n"
-        "Give clear, useful and honest answers.\n"
-        "Do not invent facts.\n\n"
+        "Give clear and useful answers.\n"
+        "Do not invent facts.\n"
+        "If you are unsure, say so.\n\n"
+        "Previous conversation:\n"
+        + old +
+        "\nCurrent user question:\n"
+        + message
     )
 
-    if history:
-        prompt += "Previous conversation:\n"
-
-        for user_text, ai_text in history[-MAX_HISTORY:]:
-            prompt += "User: " + user_text + "\n"
-            prompt += "Nexora AI: " + ai_text + "\n"
-
-    prompt += "\nUser question:\n" + message
-
     try:
-        if needs_web_search(message):
-            search_tool = types.Tool(
+        if web_needed(message):
+            tool = types.Tool(
                 google_search=types.GoogleSearch()
             )
 
             config = types.GenerateContentConfig(
-                tools=[search_tool],
+                tools=[tool],
                 max_output_tokens=1200
             )
-
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config=config
-            )
-
         else:
             config = types.GenerateContentConfig(
                 max_output_tokens=1200
             )
 
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=prompt,
-                config=config
-            )
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt,
+            config=config
+        )
 
-        answer = response.text or "मुझे अभी कोई उत्तर नहीं मिला।"
+        answer = response.text or "मुझे कोई उत्तर नहीं मिला।"
 
         history = history[-MAX_HISTORY:] + [
             (message, answer)
         ]
 
-        return "", history, make_chat_html(history)
+        return "", history, make_history(history)
 
     except Exception as e:
-        error_text = "❌ समस्या: " + str(e)
-
-        return (
-            "",
-            history,
-            make_chat_html(history)
-            + '<div class="error">'
-            + html.escape(error_text)
-            + '</div>'
+        error = "❌ समस्या: " + str(e)
+        return "", history, make_history(history) + (
+            '<div class="error">' +
+            html.escape(error) +
+            '</div>'
         )
 
 
-def clear_chat():
-    return [], make_chat_html([])
+def new_chat_action():
+    return [], make_history([])
 
 
 CSS = (
-    "*{box-sizing:border-box;}"
-    "body{margin:0;}"
-    "#appbox{max-width:1000px;margin:auto;}"
-    ".topbar{display:flex;align-items:center;"
-    "justify-content:space-between;padding:12px 8px;}"
-    ".logo{font-size:22px;font-weight:700;}"
-    ".chatbox{height:68vh;overflow-y:auto;"
-    "padding:15px 8px 130px;scroll-behavior:smooth;}"
-    ".user-message{display:flex;justify-content:flex-end;"
-    "margin:12px 0;}"
-    ".ai-message{display:block;margin:14px 0;}"
-    ".bubble{max-width:82%;padding:12px 15px;"
-    "border-radius:16px;line-height:1.5;}"
-    ".user-bubble{background:#e8f0fe;}"
-    ".ai-bubble{background:#f3f3f3;}"
-    ".actions{display:flex;gap:6px;margin-top:5px;}"
-    ".actions button{min-width:38px;height:34px;"
-    "border:0;border-radius:10px;cursor:pointer;}"
-    "#inputrow{position:fixed;left:50%;bottom:10px;"
-    "transform:translateX(-50%);width:min(96%,980px);"
-    "z-index:50;background:white;padding:8px;"
-    "border-radius:18px;box-shadow:0 2px 18px #9995;}"
-    "#question textarea{border-radius:14px!important;}"
-    "#emptychat{text-align:center;padding-top:18vh;"
-    "font-size:18px;line-height:2;}"
+    "html,body{margin:0;padding:0;}"
+    "body{background:#fff;font-family:Arial,sans-serif;}"
+    ".app{max-width:1000px;margin:auto;}"
+    ".top{height:60px;display:flex;align-items:center;"
+    "justify-content:space-between;padding:0 15px;"
+    "border-bottom:1px solid #eee;}"
+    ".brand{font-size:22px;font-weight:700;}"
+    ".top-right{font-size:18px;}"
+    ".welcome{text-align:center;padding-top:18vh;}"
+    ".robot{font-size:55px;}"
+    ".welcome h1{font-size:30px;margin:8px;}"
+    ".welcome p{font-size:18px;margin:7px;color:#555;}"
+    "#chatarea{height:68vh;overflow-y:auto;"
+    "padding:10px 12px 150px;scroll-behavior:smooth;}"
+    ".user-row{display:flex;justify-content:flex-end;margin:14px 0;}"
+    ".user-bubble{background:#e8f0fe;padding:12px 16px;"
+    "border-radius:18px;max-width:80%;font-size:16px;}"
+    ".ai-row{margin:18px 0;}"
+    ".ai-bubble{background:#f5f5f5;padding:14px 16px;"
+    "border-radius:18px;max-width:88%;font-size:16px;"
+    "line-height:1.55;}"
+    ".ai-name{font-weight:700;margin-bottom:8px;}"
+    ".answer-actions{display:flex;gap:6px;margin-top:6px;}"
+    ".answer-actions button{border:0;background:#f1f1f1;"
+    "border-radius:10px;padding:7px 10px;font-size:16px;}"
     ".error{color:#b00020;padding:10px;}"
-    "#voicepanel{padding:10px;margin:5px 0;"
-    "border:1px solid #ddd;border-radius:12px;}"
+    "#inputbar{position:fixed;left:50%;bottom:12px;"
+    "transform:translateX(-50%);width:min(94%,950px);"
+    "background:#fff;padding:8px;border-radius:22px;"
+    "box-shadow:0 2px 20px #0002;z-index:100;}"
+    "#question textarea{border-radius:18px!important;"
+    "font-size:16px!important;}"
+    "#mic button,#send button{min-width:52px!important;"
+    "height:52px!important;border-radius:18px!important;"
+    "font-size:22px!important;}"
+    ".menu-title{font-size:21px;font-weight:700;"
+    "padding:10px 5px;}"
+    ".menu-info{color:#666;padding:5px;}"
 )
 
 
 JS = (
     "() => {"
-    "window.copyAnswer = function(btn) {"
-    " const box=btn.closest('.ai-message').querySelector('.bubble');"
-    " if(box) navigator.clipboard.writeText(box.innerText);"
+
+    "window.copyAnswer=function(btn){"
+    "var b=btn.closest('.ai-row').querySelector('.ai-bubble');"
+    "if(b&&navigator.clipboard){"
+    "navigator.clipboard.writeText(b.innerText);"
+    "}"
     "};"
 
-    "window.speakAnswer = function(btn) {"
-    " const box=btn.closest('.ai-message').querySelector('.bubble');"
-    " if(!box)return;"
-    " speechSynthesis.cancel();"
-    " const u=new SpeechSynthesisUtterance(box.innerText);"
-    " u.lang='hi-IN';"
-    " u.rate=0.9;"
-    " speechSynthesis.speak(u);"
+    "window.speakAnswer=function(btn){"
+    "var b=btn.closest('.ai-row').querySelector('.ai-bubble');"
+    "if(!b)return;"
+    "speechSynthesis.cancel();"
+    "var u=new SpeechSynthesisUtterance(b.innerText);"
+    "u.lang='hi-IN';"
+    "u.rate=0.9;"
+    "speechSynthesis.speak(u);"
     "};"
 
-    "window.shareAnswer = function(btn) {"
-    " const box=btn.closest('.ai-message').querySelector('.bubble');"
-    " if(!box)return;"
-    " if(navigator.share){"
-    "  navigator.share({text:box.innerText});"
-    " }else{"
-    "  navigator.clipboard.writeText(box.innerText);"
-    " }"
+    "window.shareAnswer=function(btn){"
+    "var b=btn.closest('.ai-row').querySelector('.ai-bubble');"
+    "if(!b)return;"
+    "if(navigator.share){"
+    "navigator.share({text:b.innerText});"
+    "}else if(navigator.clipboard){"
+    "navigator.clipboard.writeText(b.innerText);"
+    "}"
     "};"
 
     "document.addEventListener('click',function(e){"
-    " const mic=e.target.closest('#micbtn');"
-    " if(mic){"
-    "  const R=window.SpeechRecognition||window.webkitSpeechRecognition;"
-    "  if(!R){alert('इस ब्राउज़र में माइक्रोफोन उपलब्ध नहीं है।');return;}"
-    "  const r=new R();"
-    "  r.lang='hi-IN';"
-    "  r.interimResults=false;"
-    "  r.onresult=function(ev){"
-    "   const box=document.querySelector('#question textarea');"
-    "   if(box){"
-    "    box.value=ev.results[0][0].transcript;"
-    "    box.dispatchEvent(new Event('input',{bubbles:true}));"
-    "   }"
-    "  };"
-    "  r.start();"
-    " }"
+    "var mic=e.target.closest('#mic');"
+    "if(mic){"
+    "var R=window.SpeechRecognition||window.webkitSpeechRecognition;"
+    "if(!R){alert('इस ब्राउज़र में माइक्रोफोन उपलब्ध नहीं है।');return;}"
+    "var r=new R();"
+    "r.lang='hi-IN';"
+    "r.interimResults=false;"
+    "r.onresult=function(ev){"
+    "var box=document.querySelector('#question textarea');"
+    "if(box){"
+    "box.value=ev.results[0][0].transcript;"
+    "box.dispatchEvent(new Event('input',{bubbles:true}));"
+    "}"
+    "};"
+    "r.start();"
+    "}"
     "});"
 
     "setInterval(function(){"
-    " const c=document.querySelector('#chatbox');"
-    " if(c)c.scrollTop=c.scrollHeight;"
-    "},800);"
+    "var c=document.querySelector('#chatarea');"
+    "if(c)c.scrollTop=c.scrollHeight;"
+    "},1000);"
+
     "}"
 )
 
@@ -230,61 +238,73 @@ JS = (
 with gr.Blocks(title="Nexora AI") as app:
 
     gr.HTML(
-        '<div id="appbox">'
-        '<div class="topbar">'
-        '<div class="logo">🤖 Nexora AI</div>'
-        '<div>🔊 Nexora AI</div>'
+        '<div class="app">'
+        '<div class="top">'
+        '<div class="brand">🤖 Nexora AI</div>'
+        '<div class="top-right">🔊 Nexora AI</div>'
         '</div>'
         '</div>'
     )
 
-    history_state = gr.State([])
+    with gr.Row():
+        with gr.Column(scale=1, visible=True):
+            gr.HTML(
+                '<div class="menu-title">☰ Nexora AI</div>'
+                '<div class="menu-info">✨ Nexora AI Assistant</div>'
+            )
 
-    chat = gr.HTML(
-        make_chat_html([]),
-        elem_id="chatbox"
-    )
+            new_chat = gr.Button("🆕 नया चैट")
+            web_button = gr.Button("🌐 Web Search")
+            image_button = gr.Button("🖼️ Create Image")
+            write_button = gr.Button("✍️ Write / Edit")
+            files_button = gr.Button("📁 Files")
+            voice_button = gr.Button("🎙️ Voice")
+            settings_button = gr.Button("⚙️ Settings")
 
-    with gr.Row(elem_id="inputrow"):
+        with gr.Column(scale=4):
+            history_state = gr.State([])
+
+            chat = gr.HTML(
+                make_history([]),
+                elem_id="chatarea"
+            )
+
+    with gr.Row(elem_id="inputbar"):
 
         question = gr.Textbox(
-            placeholder="यहाँ अपना सवाल लिखें...",
+            placeholder="Ask Nexora AI...",
             show_label=False,
             lines=1,
-            elem_id="question"
+            elem_id="question",
+            scale=8
         )
 
         mic = gr.Button(
             "🎤",
-            elem_id="micbtn",
+            elem_id="mic",
             scale=0
         )
 
         send = gr.Button(
             "➤",
-            elem_id="sendbtn",
+            elem_id="send",
             scale=0
         )
 
-    new_chat = gr.Button(
-        "🆕 नया चैट",
-        elem_id="newchat"
-    )
-
     send.click(
-        nexora_ai,
+        ask_ai,
         inputs=[question, history_state],
         outputs=[question, history_state, chat]
     )
 
     question.submit(
-        nexora_ai,
+        ask_ai,
         inputs=[question, history_state],
         outputs=[question, history_state, chat]
     )
 
     new_chat.click(
-        clear_chat,
+        new_chat_action,
         outputs=[history_state, chat]
     )
 
@@ -294,4 +314,4 @@ app.launch(
     server_port=int(os.environ.get("PORT", "10000")),
     css=CSS,
     js=JS
-)
+    )
