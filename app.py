@@ -867,6 +867,7 @@ with gr.Blocks(
             </div>
             """
         )
+    
 
         live_token = gr.Textbox(
             visible=False
@@ -874,4 +875,156 @@ with gr.Blocks(
 
         with gr.Row(
             elem_id="voice-buttons"
-  
+          ):
+
+            live_start = gr.Button(
+                "🎙️ Live शुरू करें",
+                variant="primary"
+            )
+
+            live_stop = gr.Button(
+                "✕ बंद करें"
+            )
+
+
+    # =====================================================
+    # LIVE VOICE BUTTONS
+    # =====================================================
+
+    live_start.click(
+        create_live_token,
+        outputs=live_token
+    )
+
+    live_stop.click(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+            if (window.stopNexoraLive) {
+                window.stopNexoraLive();
+            }
+            return [];
+        }
+        """
+    )
+
+
+    # =====================================================
+    # COPY BUTTON
+    # =====================================================
+
+    copy_btn.click(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+            if (window.copyLastAnswer) {
+                window.copyLastAnswer();
+            }
+            return [];
+        }
+        """
+    )
+
+
+    # =====================================================
+    # SOUND BUTTON
+    # =====================================================
+
+    sound_btn.click(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+
+            const messages =
+                document.querySelectorAll("#chat .message");
+
+            if (!messages.length) {
+                return [];
+            }
+
+            const last =
+                messages[messages.length - 1];
+
+            const text = last.innerText;
+
+            if (!text) {
+                return [];
+            }
+
+            speechSynthesis.cancel();
+
+            const speech =
+                new SpeechSynthesisUtterance(text);
+
+            speech.lang = "hi-IN";
+            speech.rate = 0.9;
+
+            speechSynthesis.speak(speech);
+
+            return [];
+        }
+        """
+    )
+
+
+    # =====================================================
+    # SHARE BUTTON
+    # =====================================================
+
+    share_btn.click(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+
+            if (window.shareLastAnswer) {
+                window.shareLastAnswer();
+            }
+
+            return [];
+        }
+        """
+    )
+
+
+    # =====================================================
+    # MORE BUTTON
+    # =====================================================
+
+    more_btn.click(
+        None,
+        inputs=None,
+        outputs=None,
+        js="""
+        () => {
+
+            alert(
+                "🤖 Nexora AI\\n\\n"
+                + "और सुविधाएँ जल्द जोड़ी जाएँगी।"
+            );
+
+            return [];
+        }
+        """
+    )
+
+
+# =========================================================
+# START NEXORA AI
+# =========================================================
+
+app.launch(
+    server_name="0.0.0.0",
+    server_port=int(
+        os.environ.get("PORT", "10000")
+    ),
+    css=CSS,
+    js=LIVE_JS
+)
