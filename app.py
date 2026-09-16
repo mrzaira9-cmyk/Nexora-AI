@@ -1,103 +1,112 @@
 import os
 import json
 import datetime
-import html
 import gradio as gr
 from google import genai
 
+
 # =========================================================
-# GEMINI
+# API
 # =========================================================
 
-API_KEY = os.environ["GEMINI_API_KEY"]
+API_KEY = os.environ.get("GEMINI_API_KEY")
+
+if not API_KEY:
+    raise RuntimeError("GEMINI_API_KEY environment variable नहीं मिला।")
+
 
 client = genai.Client(api_key=API_KEY)
 
 TEXT_MODEL = "gemini-3.5-flash-lite"
 LIVE_MODEL = "gemini-3.8-live"
 
-MAX_HISTORY = 10
+
+# =========================================================
+# MEMORY
+# =========================================================
+
+conversation_memory = []
 
 
 # =========================================================
-# TEXT CHAT
+# TEXT AI
 # =========================================================
 
-def ask_nexora(message, history):
+def ask_nexora(question, history):
 
-    history = history or []
+    question = (question or "").strip()
 
-    if not message or not message.strip():
-        return history, history, ""
-
-    # पिछली बातचीत
-    previous = ""
-
-    for item in history[-MAX_HISTORY * 2:]:
-        if not isinstance(item, dict):
-            continue
-
-        role = item.get("role", "")
-        content = item.get("content", "")
-
-        if role == "user":
-            previous += "User: " + str(content) + "\n"
-
-        elif role == "assistant":
-            previous += "Nexora AI: " + str(content) + "\n"
-
-    prompt = (
-        "You are Nexora AI, a helpful multilingual AI assistant.\n"
-        "Understand the user's language automatically.\n"
-        "Reply in the same language as the user.\n"
-        "Give clear, useful and honest answers.\n"
-        "Do not invent facts.\n"
-        "Remember previous conversation when relevant.\n\n"
-
-        "Previous conversation:\n"
-        + previous
-        + "\nCurrent question:\n"
-        + message
-    )
+    if not question:
+        return history, ""
 
     try:
+
+        context = ""
+
+        for item in history[-10:]:
+            if isinstance(item, dict):
+                role = item.get("role", "")
+                content = item.get("content", "")
+
+                if role in ["user", "assistant"]:
+                    context += f"{role}: {content}\n"
+
+        prompt = f"""
+आप Nexora AI हैं।
+
+नियम:
+- उपयोगकर्ता जिस भाषा में पूछे, उसी भाषा में उत्तर दें।
+- हिंदी में पूछा जाए तो देवनागरी हिंदी में उत्तर दें।
+- उत्तर साफ, सरल और तथ्यात्मक रखें।
+- बातचीत के पिछले संदेशों का संदर्भ रखें।
+- अगर प्रश्न वर्तमान जानकारी मांगता है और आपके पास निश्चित जानकारी नहीं है,
+  तो अनुमान न लगाएँ।
+
+पिछली बातचीत:
+{context}
+
+नया प्रश्न:
+{question}
+"""
 
         response = client.models.generate_content(
             model=TEXT_MODEL,
             contents=prompt
         )
 
-        answer = response.text or "मुझे कोई उत्तर नहीं मिला।"
+        answer = response.text or "मुझे अभी उत्तर नहीं मिला।"
 
-        new_history = history + [
-            {
-                "role": "user",
-                "content": message
-            },
-            {
-                "role": "assistant",
-                "content": answer
-            }
-        ]
+        new_history = list(history)
 
-        return new_history, new_history, ""
+        new_history.append({
+            "role": "user",
+            "content": question
+        })
+
+        new_history.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        return new_history, ""
 
     except Exception as e:
 
-        error = "❌ समस्या आ गई: " + str(e)
+        new_history = list(history)
 
-        new_history = history + [
-            {
-                "role": "user",
-                "content": message
-            },
-            {
-                "role": "assistant",
-                "content": error
-            }
-        ]
+        new_history.append({
+            "role": "user",
+            "content": question
+        })
 
-        return new_history, new_history, ""
+        new_history.append({
+            "role": "assistant",
+            "content": "⚠️ उत्तर देते समय समस्या हुई। कृपया फिर कोशिश करें।"
+        })
+
+        print("ERROR:", e)
+
+        return new_history, ""
 
 
 # =========================================================
@@ -105,19 +114,27 @@ def ask_nexora(message, history):
 # =========================================================
 
 def new_chat():
-    return [], []
+    return []
 
 
 # =========================================================
 # LIKE / DISLIKE
 # =========================================================
 
-def handle_like(data):
-    print("Feedback:", data)
+def like_answer():
+    return "👍 धन्यवाद!"
+
+
+def dislike_answer():
+    return "👎 आपका feedback दर्ज किया गया।"
+
+
+def more_answer():
+    return "⋯ Nexora AI के और विकल्प जल्द जोड़े जाएँगे।"
 
 
 # =========================================================
-# LIVE VOICE TOKEN
+# LIVE TOKEN
 # =========================================================
 
 def create_live_token():
@@ -132,33 +149,25 @@ def create_live_token():
             config={
                 "uses": 1,
 
-                "expire_time": now + datetime.timedelta(
-                    minutes=30
-                ),
+                "expire_time":
+                    now + datetime.timedelta(minutes=30),
 
                 "new_session_expire_time":
-                    now + datetime.timedelta(
-                        minutes=1
-                    ),
+                    now + datetime.timedelta(minutes=1),
 
                 "live_connect_constraints": {
+
                     "model": LIVE_MODEL,
 
                     "config": {
-                        "response_modalities": ["AUDIO"],
 
-                        "system_instruction": {
-                            "parts": [
-                                {
-                                    "text":
-                                    "You are Nexora AI. "
-                                    "Have a natural, friendly, "
-                                    "real-time voice conversation. "
-                                    "Understand Hindi and other languages. "
-                                    "Reply in the same language the user speaks."
-                                }
-                            ]
-                        }
+                        "response_modalities": [
+                            "AUDIO"
+                        ],
+
+                        "input_audio_transcription": {},
+
+                        "output_audio_transcription": {}
                     }
                 }
             }
@@ -168,7 +177,9 @@ def create_live_token():
 
     except Exception as e:
 
-        return "ERROR:" + str(e)
+        print("LIVE TOKEN ERROR:", e)
+
+        return ""
 
 
 # =========================================================
@@ -176,401 +187,628 @@ def create_live_token():
 # =========================================================
 
 CSS = """
+
 html, body {
     margin: 0 !important;
     padding: 0 !important;
 }
 
-body {
-    background: #ffffff !important;
-}
-
 .gradio-container {
     max-width: 100% !important;
+    min-height: 100vh !important;
     padding: 0 !important;
 }
 
-#topbar {
-    height: 58px;
-    border-bottom: 1px solid #eeeeee;
-    align-items: center;
-    padding: 0 10px;
+#header {
+    padding: 12px 16px 5px 16px;
 }
 
 #chat {
-    height: calc(100vh - 160px) !important;
+    height: calc(100vh - 190px) !important;
 }
 
-#bottom {
-    position: fixed !important;
-    left: 50%;
-    bottom: 10px;
-    transform: translateX(-50%);
-    width: min(96%, 850px);
-    z-index: 1000;
+#input-area {
+    position: sticky;
+    bottom: 0;
     background: white;
-    border: 1px solid #dddddd;
-    border-radius: 24px;
-    padding: 5px;
-    box-shadow: 0 5px 25px rgba(0,0,0,.12);
+    padding: 8px;
+    z-index: 20;
 }
 
 #question textarea {
-    border: 0 !important;
-    box-shadow: none !important;
-    font-size: 16px !important;
-    padding: 12px !important;
+    min-height: 48px !important;
+    max-height: 120px !important;
 }
 
-#send button,
-#mic button,
-#live button {
-    min-height: 46px !important;
-    min-width: 46px !important;
-    border-radius: 20px !important;
-    font-size: 19px !important;
+#bottom-buttons button {
+    min-height: 42px !important;
 }
 
-#voice-panel {
+#live-status {
     text-align: center;
-    padding: 8px;
+    font-size: 14px;
+    padding: 3px;
 }
 
-.live-status {
-    font-size: 15px;
-    color: #666;
-}
-
-.live-circle {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    margin: 12px auto;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 42px;
-    background: #eef2ff;
-}
-
-.voice-buttons {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-}
-
-@media (max-width: 600px) {
-
-    #chat {
-        height: calc(100vh - 145px) !important;
-    }
-
-    #bottom {
-        width: 97%;
-    }
-}
 """
 
 
 # =========================================================
-# LIVE VOICE JAVASCRIPT
+# JAVASCRIPT
 # =========================================================
 
-LIVE_JS = r"""
-() => {
+JS = r"""
 
-    window.nexoraLive = {
-        socket: null,
-        audioContext: null,
-        processor: null,
-        source: null,
-        stream: null,
-        playing: false
+// =======================================================
+// GLOBAL
+// =======================================================
+
+window.nexoraLiveSocket = null;
+window.nexoraAudioContext = null;
+window.nexoraMicStream = null;
+window.nexoraProcessor = null;
+
+
+// =======================================================
+// MICROPHONE → TEXT
+// =======================================================
+
+window.startNexoraMic = function() {
+
+    const box =
+        document.querySelector(
+            "#question textarea"
+        );
+
+    if (!box) {
+        alert("Chat box नहीं मिला।");
+        return;
+    }
+
+    const SpeechRecognition =
+        window.SpeechRecognition ||
+        window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+
+        alert(
+            "इस browser में Voice Input उपलब्ध नहीं है।"
+        );
+
+        return;
+    }
+
+    const recognition =
+        new SpeechRecognition();
+
+    recognition.lang = "hi-IN";
+
+    recognition.interimResults = false;
+
+    recognition.continuous = false;
+
+    recognition.onstart = function() {
+
+        box.placeholder =
+            "🎙️ सुन रहा हूँ... बोलिए";
     };
 
-    function base64FromArrayBuffer(buffer) {
-        let binary = "";
-        const bytes = new Uint8Array(buffer);
+    recognition.onresult = function(event) {
 
-        for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
+        const text =
+            event.results[0][0].transcript;
 
-        return btoa(binary);
+        box.value = text;
+
+        box.dispatchEvent(
+            new Event("input", {
+                bubbles: true
+            })
+        );
+
+        box.placeholder =
+            "अपना सवाल लिखें...";
+    };
+
+    recognition.onerror = function() {
+
+        box.placeholder =
+            "अपना सवाल लिखें...";
+    };
+
+    recognition.onend = function() {
+
+        box.placeholder =
+            "अपना सवाल लिखें...";
+    };
+
+    recognition.start();
+};
+
+
+// =======================================================
+// COPY
+// =======================================================
+
+window.copyLastAnswer = async function() {
+
+    const messages =
+        document.querySelectorAll(
+            "#chat .message"
+        );
+
+    if (!messages.length) {
+        return;
     }
 
-    function arrayBufferFromBase64(base64) {
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
+    const last =
+        messages[messages.length - 1];
 
-        for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i);
-        }
+    const text =
+        last.innerText || "";
 
-        return bytes.buffer;
+    if (!text) {
+        return;
     }
 
-    function downsampleTo16k(buffer, inputRate) {
+    try {
 
-        if (inputRate === 16000) {
-            return buffer;
-        }
+        await navigator.clipboard.writeText(text);
 
-        const ratio = inputRate / 16000;
-        const newLength = Math.round(buffer.length / ratio);
-        const result = new Int16Array(newLength);
+        alert("उत्तर कॉपी हो गया।");
 
-        let offsetResult = 0;
-        let offsetBuffer = 0;
+    } catch(e) {
 
-        while (offsetResult < result.length) {
+        alert("कॉपी नहीं हो पाया।");
+    }
+};
 
-            const nextOffsetBuffer =
-                Math.round((offsetResult + 1) * ratio);
 
-            let accum = 0;
-            let count = 0;
+// =======================================================
+// SOUND
+// =======================================================
 
-            for (
-                let i = offsetBuffer;
-                i < nextOffsetBuffer &&
-                i < buffer.length;
-                i++
-            ) {
-                accum += buffer[i];
-                count++;
-            }
+window.soundLastAnswer = function() {
 
-            result[offsetResult] =
-                Math.max(
-                    -1,
-                    Math.min(
-                        1,
-                        accum / Math.max(1, count)
-                    )
-                ) * 32767;
+    const messages =
+        document.querySelectorAll(
+            "#chat .message"
+        );
 
-            offsetResult++;
-            offsetBuffer = nextOffsetBuffer;
-        }
-
-        return result;
+    if (!messages.length) {
+        return;
     }
 
-    async function playPCM16(base64) {
+    const last =
+        messages[messages.length - 1];
 
-        const data =
-            new Int16Array(
-                arrayBufferFromBase64(base64)
+    const text =
+        last.innerText || "";
+
+    if (!text) {
+        return;
+    }
+
+    speechSynthesis.cancel();
+
+    const speech =
+        new SpeechSynthesisUtterance(text);
+
+    speech.lang = "hi-IN";
+
+    speech.rate = 0.9;
+
+    speechSynthesis.speak(speech);
+};
+
+
+// =======================================================
+// SHARE
+// =======================================================
+
+window.shareLastAnswer = async function() {
+
+    const messages =
+        document.querySelectorAll(
+            "#chat .message"
+        );
+
+    if (!messages.length) {
+        return;
+    }
+
+    const last =
+        messages[messages.length - 1];
+
+    const text =
+        last.innerText || "";
+
+    if (!text) {
+        return;
+    }
+
+    if (navigator.share) {
+
+        try {
+
+            await navigator.share({
+
+                title: "Nexora AI",
+
+                text: text
+            });
+
+        } catch(e) {}
+
+    } else {
+
+        try {
+
+            await navigator.clipboard.writeText(text);
+
+            alert(
+                "Share उपलब्ध नहीं है। उत्तर कॉपी कर दिया गया।"
             );
 
-        if (!window.nexoraLive.audioContext) {
+        } catch(e) {}
+    }
+};
 
-            window.nexoraLive.audioContext =
+
+// =======================================================
+// LIVE AUDIO HELPERS
+// =======================================================
+
+function base64FromArrayBuffer(buffer) {
+
+    let binary = "";
+
+    const bytes =
+        new Uint8Array(buffer);
+
+    const chunkSize = 0x8000;
+
+    for (
+        let i = 0;
+        i < bytes.length;
+        i += chunkSize
+    ) {
+
+        binary += String.fromCharCode(
+            ...bytes.subarray(
+                i,
+                Math.min(
+                    i + chunkSize,
+                    bytes.length
+                )
+            )
+        );
+    }
+
+    return btoa(binary);
+}
+
+
+function base64ToArrayBuffer(base64) {
+
+    const binary =
+        atob(base64);
+
+    const bytes =
+        new Uint8Array(
+            binary.length
+        );
+
+    for (
+        let i = 0;
+        i < binary.length;
+        i++
+    ) {
+
+        bytes[i] =
+            binary.charCodeAt(i);
+    }
+
+    return bytes.buffer;
+}
+
+
+// =======================================================
+// PLAY GEMINI AUDIO
+// =======================================================
+
+window.playNexoraPCM = async function(base64) {
+
+    try {
+
+        if (!window.nexoraAudioContext) {
+
+            window.nexoraAudioContext =
                 new AudioContext({
                     sampleRate: 24000
                 });
         }
 
-        const ctx =
-            window.nexoraLive.audioContext;
+        const raw =
+            new Int16Array(
+                base64ToArrayBuffer(base64)
+            );
 
         const audioBuffer =
-            ctx.createBuffer(
+            window.nexoraAudioContext.createBuffer(
                 1,
-                data.length,
+                raw.length,
                 24000
             );
 
         const channel =
             audioBuffer.getChannelData(0);
 
-        for (let i = 0; i < data.length; i++) {
-            channel[i] = data[i] / 32768;
+        for (
+            let i = 0;
+            i < raw.length;
+            i++
+        ) {
+
+            channel[i] =
+                raw[i] / 32768;
         }
 
         const source =
-            ctx.createBufferSource();
+            window.nexoraAudioContext.createBufferSource();
 
-        source.buffer = audioBuffer;
+        source.buffer =
+            audioBuffer;
 
-        source.connect(ctx.destination);
+        source.connect(
+            window.nexoraAudioContext.destination
+        );
 
         source.start();
+
+    } catch(e) {
+
+        console.log(
+            "Audio playback error:",
+            e
+        );
+    }
+};
+
+
+// =======================================================
+// START LIVE
+// =======================================================
+
+window.startNexoraLive = async function(token) {
+
+    if (!token) {
+
+        alert(
+            "Live token नहीं मिला।"
+        );
+
+        return;
     }
 
+    try {
 
-    window.startNexoraLive = async function(token) {
+        const status =
+            document.querySelector(
+                "#live-status"
+            );
 
-        try {
+        if (status) {
+            status.innerText =
+                "🟢 Live चालू हो रहा है...";
+        }
 
-            if (!token || token.startsWith("ERROR:")) {
 
-                alert(
-                    "Live Voice token नहीं बन पाया।"
-                );
+        const url =
+            "wss://generativelanguage.googleapis.com/ws/" +
+            "google.ai.generativelanguage.v1beta." +
+            "GenerativeService.BidiGenerateContentConstrained" +
+            "?access_token=" +
+            encodeURIComponent(token);
 
-                return;
-            }
 
-            const wsUrl =
-                "wss://generativelanguage.googleapis.com/"
-                + "ws/google.ai.generativelanguage.v1beta."
-                + "GenerativeService."
-                + "BidiGenerateContentConstrained"
-                + "?access_token="
-                + encodeURIComponent(token);
+        const socket =
+            new WebSocket(url);
 
-            const socket =
-                new WebSocket(wsUrl);
+        window.nexoraLiveSocket =
+            socket;
 
-            window.nexoraLive.socket = socket;
 
-            socket.onopen = async function() {
+        socket.onopen = async function() {
 
-                document
-                    .getElementById("live-status")
-                    .innerText =
-                    "🟢 Live चालू है — बोलिए...";
+            const setup = {
 
-                const setup = {
-                    setup: {
-                        model:
-                            "models/gemini-3.8-live",
+                setup: {
 
-                        generationConfig: {
-                            responseModalities: [
-                                "AUDIO"
-                            ]
-                        },
+                    model:
+                        "models/gemini-3.8-live",
 
-                        inputAudioTranscription: {},
+                    generationConfig: {
 
-                        outputAudioTranscription: {}
-                    }
-                };
+                        responseModalities: [
+                            "AUDIO"
+                        ]
+                    },
 
-                socket.send(
-                    JSON.stringify(setup)
-                );
+                    systemInstruction: {
 
-                try {
+                        parts: [
 
-                    const stream =
-                        await navigator
-                            .mediaDevices
-                            .getUserMedia({
-                                audio: true
-                            });
-
-                    window.nexoraLive.stream =
-                        stream;
-
-                    const audioContext =
-                        new AudioContext();
-
-                    window.nexoraLive.audioContext =
-                        audioContext;
-
-                    const source =
-                        audioContext
-                            .createMediaStreamSource(
-                                stream
-                            );
-
-                    const processor =
-                        audioContext
-                            .createScriptProcessor(
-                                4096,
-                                1,
-                                1
-                            );
-
-                    window.nexoraLive.source =
-                        source;
-
-                    window.nexoraLive.processor =
-                        processor;
-
-                    source.connect(processor);
-
-                    processor.connect(
-                        audioContext.destination
-                    );
-
-                    processor.onaudioprocess =
-                        function(event) {
-
-                            if (
-                                socket.readyState !==
-                                WebSocket.OPEN
-                            ) {
-                                return;
+                            {
+                                text:
+                                    "You are Nexora AI. " +
+                                    "Be helpful and concise. " +
+                                    "Answer in the user's language."
                             }
 
-                            const input =
-                                event.inputBuffer
-                                    .getChannelData(0);
-
-                            const pcm =
-                                downsampleTo16k(
-                                    input,
-                                    audioContext.sampleRate
-                                );
-
-                            const bytes =
-                                new Uint8Array(
-                                    pcm.buffer
-                                );
-
-                            socket.send(
-                                JSON.stringify({
-                                    realtimeInput: {
-                                        audio: {
-                                            data:
-                                                base64FromArrayBuffer(
-                                                    bytes.buffer
-                                                ),
-                                            mimeType:
-                                                "audio/pcm;rate=16000"
-                                        }
-                                    }
-                                })
-                            );
-                        };
-
-                } catch (error) {
-
-                    document
-                        .getElementById("live-status")
-                        .innerText =
-                        "❌ Microphone की अनुमति नहीं मिली।";
+                        ]
+                    }
                 }
             };
 
 
-            socket.onmessage = async function(event) {
+            socket.send(
+                JSON.stringify(setup)
+            );
+
+
+            try {
+
+                window.nexoraMicStream =
+                    await navigator.mediaDevices
+                        .getUserMedia({
+                            audio: true
+                        });
+
+
+                window.nexoraAudioContext =
+                    new AudioContext();
+
+
+                const source =
+                    window.nexoraAudioContext
+                        .createMediaStreamSource(
+                            window.nexoraMicStream
+                        );
+
+
+                const processor =
+                    window.nexoraAudioContext
+                        .createScriptProcessor(
+                            4096,
+                            1,
+                            1
+                        );
+
+
+                window.nexoraProcessor =
+                    processor;
+
+
+                processor.onaudioprocess =
+                    function(event) {
+
+                        if (
+                            socket.readyState !==
+                            WebSocket.OPEN
+                        ) {
+                            return;
+                        }
+
+
+                        const input =
+                            event.inputBuffer
+                                .getChannelData(0);
+
+
+                        const pcm =
+                            new Int16Array(
+                                input.length
+                            );
+
+
+                        for (
+                            let i = 0;
+                            i < input.length;
+                            i++
+                        ) {
+
+                            let sample =
+                                Math.max(
+                                    -1,
+                                    Math.min(
+                                        1,
+                                        input[i]
+                                    )
+                                );
+
+                            pcm[i] =
+                                sample < 0
+                                    ? sample * 32768
+                                    : sample * 32767;
+                        }
+
+
+                        socket.send(
+                            JSON.stringify({
+
+                                realtimeInput: {
+
+                                    audio: {
+
+                                        data:
+                                            base64FromArrayBuffer(
+                                                pcm.buffer
+                                            ),
+
+                                        mimeType:
+                                            "audio/pcm;rate=" +
+                                            window.nexoraAudioContext
+                                                .sampleRate
+                                    }
+                                }
+                            })
+                        );
+                    };
+
+
+                source.connect(processor);
+
+                processor.connect(
+                    window.nexoraAudioContext.destination
+                );
+
+
+                if (status) {
+
+                    status.innerText =
+                        "🟢 Live चालू है — बोलिए...";
+                }
+
+            } catch(e) {
+
+                console.log(
+                    "Microphone error:",
+                    e
+                );
+
+                if (status) {
+
+                    status.innerText =
+                        "⚠️ Microphone permission दें।";
+                }
+            }
+        };
+
+
+        socket.onmessage =
+            async function(event) {
 
                 try {
 
-                    const message =
-                        JSON.parse(event.data);
+                    const data =
+                        JSON.parse(
+                            event.data
+                        );
 
-                    const content =
-                        message.serverContent;
-
-                    if (!content) {
-                        return;
-                    }
 
                     if (
-                        content.modelTurn &&
-                        content.modelTurn.parts
+                        data.serverContent &&
+                        data.serverContent.modelTurn
                     ) {
 
+                        const parts =
+                            data.serverContent
+                                .modelTurn.parts || [];
+
+
                         for (
-                            const part
-                            of content.modelTurn.parts
+                            const part of parts
                         ) {
 
                             if (
@@ -578,453 +816,142 @@ LIVE_JS = r"""
                                 part.inlineData.data
                             ) {
 
-                                await playPCM16(
+                                await
+                                window.playNexoraPCM(
                                     part.inlineData.data
                                 );
                             }
                         }
                     }
 
+
                     if (
-                        content.outputTranscription &&
-                        content.outputTranscription.text
+                        data.serverContent &&
+                        data.serverContent.outputTranscription
                     ) {
 
+                        const text =
+                            data.serverContent
+                                .outputTranscription
+                                .text;
+
                         console.log(
-                            "Gemini:",
-                            content.outputTranscription.text
+                            "Nexora:",
+                            text
                         );
                     }
 
-                } catch (error) {
+                } catch(e) {
 
                     console.log(
                         "Live message error:",
-                        error
+                        e
                     );
                 }
             };
 
 
-            socket.onerror = function() {
+        socket.onerror =
+            function(error) {
 
-                document
-                    .getElementById("live-status")
-                    .innerText =
-                    "❌ Live Voice में समस्या हुई।";
+                console.log(
+                    "Live WebSocket error:",
+                    error
+                );
+
+                const status =
+                    document.querySelector(
+                        "#live-status"
+                    );
+
+                if (status) {
+
+                    status.innerText =
+                        "⚠️ Live connection में समस्या हुई।";
+                }
             };
 
 
-            socket.onclose = function() {
+        socket.onclose =
+            function() {
 
-                document
-                    .getElementById("live-status")
-                    .innerText =
-                    "⚪ Live बंद है";
+                const status =
+                    document.querySelector(
+                        "#live-status"
+                    );
+
+                if (status) {
+
+                    status.innerText =
+                        "⚪ Live बंद है";
+                }
             };
 
-        } catch (error) {
+    } catch(e) {
 
-            alert(
-                "Live Voice शुरू नहीं हो पाया: "
-                + error
-            );
+        console.log(
+            "Live error:",
+            e
+        );
+
+        alert(
+            "Live शुरू नहीं हो पाया।"
+        );
+    }
+};
+
+
+// =======================================================
+// STOP LIVE
+// =======================================================
+
+window.stopNexoraLive = function() {
+
+    try {
+
+        if (
+            window.nexoraProcessor
+        ) {
+
+            window.nexoraProcessor.disconnect();
+
+            window.nexoraProcessor =
+                null;
         }
-    };
 
 
-    window.stopNexoraLive = function() {
+        if (
+            window.nexoraMicStream
+        ) {
 
-        const live =
-            window.nexoraLive;
-
-        if (live.processor) {
-            live.processor.disconnect();
-        }
-
-        if (live.source) {
-            live.source.disconnect();
-        }
-
-        if (live.stream) {
-
-            live.stream
+            window.nexoraMicStream
                 .getTracks()
                 .forEach(
                     track => track.stop()
                 );
+
+            window.nexoraMicStream =
+                null;
         }
 
-        if (live.socket) {
-            live.socket.close();
+
+        if (
+            window.nexoraLiveSocket
+        ) {
+
+            window.nexoraLiveSocket.close();
+
+            window.nexoraLiveSocket =
+                null;
         }
 
-        document
-            .getElementById("live-status")
-            .innerText =
-            "⚪ Live बंद है";
-    };
 
-
-    window.copyLastAnswer = function() {
-
-        const messages =
-            document.querySelectorAll(
-                "#chat .message"
+        const status =
+            document.querySelector(
+                "#live-status"
             );
 
-        if (!messages.length) {
-            return;
-        }
+        if (status) {
 
-        const last =
-            messages[messages.length - 1];
-
-        navigator.clipboard.writeText(
-            last.innerText
-        );
-    };
-
-
-    window.shareLastAnswer = async function() {
-
-        const messages =
-            document.querySelectorAll(
-                "#chat .message"
-            );
-
-        if (!messages.length) {
-            return;
-        }
-
-        const last =
-            messages[messages.length - 1];
-
-        const text =
-            last.innerText;
-
-        if (navigator.share) {
-
-            await navigator.share({
-                title: "Nexora AI",
-                text: text
-            });
-
-        } else {
-
-            await navigator.clipboard.writeText(
-                text
-            );
-
-            alert(
-                "उत्तर कॉपी हो गया।"
-            );
-        }
-    };
-}
-"""
-
-
-# =========================================================
-# APP
-# =========================================================
-
-with gr.Blocks(
-    title="Nexora AI"
-) as app:
-
-    # ---------------- TOP ----------------
-
-    with gr.Row(elem_id="topbar"):
-
-        menu = gr.Button(
-            "☰",
-            scale=0,
-            min_width=45
-        )
-
-        gr.Markdown(
-            "## 🤖 Nexora AI"
-        )
-
-
-    # ---------------- SIDEBAR ----------------
-
-    with gr.Sidebar(
-        label="Nexora AI",
-        open=False,
-        width=270
-    ):
-
-        gr.Markdown(
-            "# 🤖 Nexora AI"
-        )
-
-        new_chat_btn = gr.Button(
-            "🆕 नया चैट"
-        )
-
-        gr.Button(
-            "🗂️ Chat History"
-        )
-
-        gr.Button(
-            "🌐 Web Search"
-        )
-
-        gr.Button(
-            "🖼️ Create Image"
-        )
-
-        gr.Button(
-            "✍️ Write / Edit"
-        )
-
-        gr.Button(
-            "📁 Files"
-        )
-
-        gr.Button(
-            "🎙️ Live Voice"
-        )
-
-        gr.Button(
-            "⚙️ Settings"
-        )
-
-
-    # ---------------- STATE ----------------
-
-    history_state = gr.State([])
-
-
-    # ---------------- CHAT ----------------
-
-    chat = gr.Chatbot(
-        value=[],
-        show_label=False,
-        autoscroll=True,
-        height="calc(100vh - 160px)",
-        elem_id="chat",
-        buttons=["copy"],
-        feedback_options=[
-            "Like",
-            "Dislike"
-        ]
-    )
-
-
-    chat.like(
-        handle_like,
-        None,
-        None
-    )
-
-
-    # =====================================================
-    # EXTRA ANSWER OPTIONS
-    # =====================================================
-
-    with gr.Row():
-
-        copy_btn = gr.Button(
-            "📋 Copy"
-        )
-
-        sound_btn = gr.Button(
-            "🔊 Sound"
-        )
-
-        share_btn = gr.Button(
-            "↗️ Share"
-        )
-
-        more_btn = gr.Button(
-            "⋯ More"
-        )
-
-
-    # =====================================================
-    # LIVE VOICE PANEL
-    # =====================================================
-
-    with gr.Group(
-        visible=True,
-        elem_id="voice-panel"
-    ):
-
-        gr.HTML(
-            """
-            <div class="live-circle">
-                🎙️
-            </div>
-
-            <div
-                id="live-status"
-                class="live-status"
-            >
-                ⚪ Live Voice बंद है
-            </div>
-            """
-        )
-    
-
-        live_token = gr.Textbox(
-            visible=False
-        )
-
-        with gr.Row(
-            elem_id="voice-buttons"
-          ):
-
-            live_start = gr.Button(
-                "🎙️ Live शुरू करें",
-                variant="primary"
-            )
-
-            live_stop = gr.Button(
-                "✕ बंद करें"
-            )
-
-
-    # =====================================================
-    # LIVE VOICE BUTTONS
-    # =====================================================
-
-    live_start.click(
-        create_live_token,
-        outputs=live_token
-    )
-
-    live_stop.click(
-        None,
-        inputs=None,
-        outputs=None,
-        js="""
-        () => {
-            if (window.stopNexoraLive) {
-                window.stopNexoraLive();
-            }
-            return [];
-        }
-        """
-    )
-
-
-    # =====================================================
-    # COPY BUTTON
-    # =====================================================
-
-    copy_btn.click(
-        None,
-        inputs=None,
-        outputs=None,
-        js="""
-        () => {
-            if (window.copyLastAnswer) {
-                window.copyLastAnswer();
-            }
-            return [];
-        }
-        """
-    )
-
-
-    # =====================================================
-    # SOUND BUTTON
-    # =====================================================
-
-    sound_btn.click(
-        None,
-        inputs=None,
-        outputs=None,
-        js="""
-        () => {
-
-            const messages =
-                document.querySelectorAll("#chat .message");
-
-            if (!messages.length) {
-                return [];
-            }
-
-            const last =
-                messages[messages.length - 1];
-
-            const text = last.innerText;
-
-            if (!text) {
-                return [];
-            }
-
-            speechSynthesis.cancel();
-
-            const speech =
-                new SpeechSynthesisUtterance(text);
-
-            speech.lang = "hi-IN";
-            speech.rate = 0.9;
-
-            speechSynthesis.speak(speech);
-
-            return [];
-        }
-        """
-    )
-
-
-    # =====================================================
-    # SHARE BUTTON
-    # =====================================================
-
-    share_btn.click(
-        None,
-        inputs=None,
-        outputs=None,
-        js="""
-        () => {
-
-            if (window.shareLastAnswer) {
-                window.shareLastAnswer();
-            }
-
-            return [];
-        }
-        """
-    )
-
-
-    # =====================================================
-    # MORE BUTTON
-    # =====================================================
-
-    more_btn.click(
-        None,
-        inputs=None,
-        outputs=None,
-        js="""
-        () => {
-
-            alert(
-                "🤖 Nexora AI\\n\\n"
-                + "और सुविधाएँ जल्द जोड़ी जाएँगी।"
-            );
-
-            return [];
-        }
-        """
-    )
-
-
-# =========================================================
-# START NEXORA AI
-# =========================================================
-
-app.launch(
-    server_name="0.0.0.0",
-    server_port=int(
-        os.environ.get("PORT", "10000")
-    ),
-    css=CSS,
-    js=LIVE_JS
-)
+            status.innerText =
+  
