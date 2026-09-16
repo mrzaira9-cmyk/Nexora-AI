@@ -26,11 +26,10 @@ LIVE_MODEL = "gemini-3.8-live"
 def ask_nexora(question, history):
 
     question = (question or "").strip()
+    history = history or []
 
     if not question:
         return history, ""
-
-    history = history or []
 
     context = ""
 
@@ -41,11 +40,10 @@ def ask_nexora(question, history):
             role = item.get("role", "")
             content = item.get("content", "")
 
-            if role in ["user", "assistant"]:
+            if role in ("user", "assistant") and isinstance(content, str):
                 context += f"{role}: {content}\n"
 
-    prompt = f"""
-आप Nexora AI हैं।
+    prompt = f"""आप Nexora AI हैं।
 
 नियम:
 1. उपयोगकर्ता जिस भाषा में पूछे उसी भाषा में उत्तर दें।
@@ -95,7 +93,7 @@ def ask_nexora(question, history):
 
 
 # =========================================================
-# BUTTONS
+# BUTTON FUNCTIONS
 # =========================================================
 
 def new_chat():
@@ -122,25 +120,17 @@ def create_live_token():
 
     try:
 
-        now = datetime.datetime.now(
-            datetime.timezone.utc
-        )
+        now = datetime.datetime.now(datetime.timezone.utc)
 
         token = client.auth_tokens.create(
-
             config={
-
                 "uses": 1,
 
                 "expire_time":
-                    now + datetime.timedelta(
-                        minutes=30
-                    ),
+                    now + datetime.timedelta(minutes=30),
 
                 "new_session_expire_time":
-                    now + datetime.timedelta(
-                        minutes=1
-                    ),
+                    now + datetime.timedelta(minutes=1),
 
                 "live_connect_constraints": {
 
@@ -236,13 +226,14 @@ window.nexoraProcessor = null;
 
 window.startNexoraMic = function () {
 
-    const box =
-        document.querySelector(
-            "#question textarea"
-        );
+    const box = document.querySelector(
+        "#question textarea"
+    );
 
     if (!box) {
+
         alert("Chat box नहीं मिला।");
+
         return;
     }
 
@@ -317,13 +308,13 @@ function getLastAnswer() {
         );
 
     if (!messages.length) {
+
         return "";
     }
 
     return (
-        messages[
-            messages.length - 1
-        ].innerText || ""
+        messages[messages.length - 1]
+            .innerText || ""
     );
 }
 
@@ -338,6 +329,7 @@ window.copyLastAnswer = async function () {
         getLastAnswer();
 
     if (!text) {
+
         return;
     }
 
@@ -347,11 +339,15 @@ window.copyLastAnswer = async function () {
             text
         );
 
-        alert("उत्तर कॉपी हो गया।");
+        alert(
+            "उत्तर कॉपी हो गया।"
+        );
 
     } catch (e) {
 
-        alert("कॉपी नहीं हो पाया।");
+        alert(
+            "कॉपी नहीं हो पाया।"
+        );
     }
 };
 
@@ -366,6 +362,7 @@ window.soundLastAnswer = function () {
         getLastAnswer();
 
     if (!text) {
+
         return;
     }
 
@@ -396,6 +393,7 @@ window.shareLastAnswer = async function () {
         getLastAnswer();
 
     if (!text) {
+
         return;
     }
 
@@ -857,6 +855,7 @@ window.stopNexoraLive = function () {
                 .getTracks()
                 .forEach(
                     function (track) {
+
                         track.stop();
                     }
                 );
@@ -942,7 +941,7 @@ with gr.Blocks(
 
 
     # =====================================================
-    # CHAT AREA
+    # CHAT
     # =====================================================
 
     chat = gr.Chatbot(
@@ -955,7 +954,7 @@ with gr.Blocks(
 
 
     # =====================================================
-    # MAIN INPUT
+    # INPUT
     # =====================================================
 
     with gr.Row(
@@ -983,7 +982,7 @@ with gr.Blocks(
 
 
     # =====================================================
-    # LIVE
+    # GEMINI LIVE
     # =====================================================
 
     with gr.Row():
@@ -1010,7 +1009,7 @@ with gr.Blocks(
 
 
     # =====================================================
-    # ALL 6 OPTIONS
+    # SIX OPTIONS
     # =====================================================
 
     with gr.Row(
@@ -1052,9 +1051,12 @@ with gr.Blocks(
     # =====================================================
 
     send_btn.click(
-        ask_nexora,
+        fn=ask_nexora,
         inputs=[
             question,
             chat
         ],
-        
+        outputs=[
+            chat,
+            question
+       
