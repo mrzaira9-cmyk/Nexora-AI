@@ -1,89 +1,257 @@
-import React, { useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput } from 'react-native';
 
-export default function App() {
-  const [currentMenu, setCurrentMenu] = useState('Chat');
+import os
+import gradio as gr
+from google import genai
 
-  // Sidebar / Menu Items as per your list
-  const menuItems = [
-    { category: 'A. Chat Basics', items: ['New Chat', 'Chat History', 'Multilingual Chat', 'Rename/Delete Chat'] },
-    { category: 'B. Answer Tools', items: ['👍 Like', '👎 Dislike', '🔊 Speak', '📋 Copy', '↗️ Share'] },
-    { category: 'C. Voice', items: ['🎤 Mic', '🔊 Voice Reply', '⏸️ Pause', '⏹️ Stop', '⚙️ Voice Settings', 'Voice Selection'] },
-    { category: 'D. Internet', items: ['🌐 Web Search', '📰 Latest Info', '🔗 Source Links', '🔎 Research'] },
-    { category: 'E. Files & Images', items: ['📎 File Upload', '📄 PDF Read', '📊 Data Analysis', '🖼️ Vision', '🎨 Image Gen'] },
-    { category: 'F. Advanced', items: ['🧠 Memory', '📁 Projects', '⏰ Tasks', '📝 Workspace'] },
-  ];
+API_KEY = os.environ["GEMINI_API_KEY"]
+client = genai.Client(api_key=API_KEY)
 
-  return (
-    <View style={styles.container}>
-      {/* Top Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>🤖 My Advanced AI Assistant</Text>
-      </View>
+MODEL = "gemini-3.5-flash-lite"
 
-      <View style={styles.mainBody}>
-        {/* Left Sidebar for Options */}
-        <ScrollView style={styles.sidebar} showsVerticalScrollIndicator={false}>
-          {menuItems.map((sec, idx) => (
-            <View key={idx} style={styles.sectionContainer}>
-              <Text style={styles.sectionTitle}>{sec.category}</Text>
-              {sec.items.map((item, itemIdx) => (
-                <TouchableOpacity 
-                  key={itemIdx} 
-                  style={[styles.menuButton, currentMenu === item && styles.activeMenu]}
-                  onPress={() => setCurrentMenu(item)}
-                >
-                  <Text style={styles.menuText}>{item}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ))}
-        </ScrollView>
 
-        {/* Right Side Chat Screen */}
-        <View style={styles.chatArea}>
-          <View style={styles.chatHeader}>
-            <Text style={styles.chatHeaderTitle}>Active Mode: {currentMenu}</Text>
-          </View>
-          
-          {/* Chat Messages Placeholder */}
-          <ScrollView style={styles.messageList}>
-            <View style={styles.aiMessage}>
-              <Text style={styles.messageText}>Hello! Main aapki kaise madad kar sakta hoon? Aapne abhi '{currentMenu}' option select kiya hai.</Text>
-            </View>
-          </ScrollView>
+def ask_nexora(message, history):
+    history = history or []
 
-          {/* Input Bar */}
-          <View style={styles.inputContainer}>
-            <TextInput style={styles.input} placeholder="Type your message here..." />
-            <TouchableOpacity style={styles.sendButton}>
-              <Text style={styles.sendButtonText}>Send</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
+    if not message or not message.strip():
+        return history, history, ""
+
+    # पिछली बातचीत तैयार करना
+    previous = ""
+
+    for item in history[-20:]:
+        if isinstance(item, dict):
+            role = item.get("role", "")
+            content = str(item.get("content", ""))
+
+            if role == "user":
+                previous += "User: " + content + "\n"
+
+            elif role == "assistant":
+                previous += "Nexora AI: " + content + "\n"
+
+    prompt = (
+        "You are Nexora AI, a helpful multilingual AI assistant.\n\n"
+
+        "IMPORTANT CONVERSATION RULE:\n"
+        "Always use the previous conversation to understand the current "
+        "question.\n"
+        "If the user's new message is short, incomplete, or only contains "
+        "words like '2026 mein', 'haan', 'aur?', 'kitna?', 'uska?', etc., "
+        "infer what the user means from the previous conversation.\n"
+        "Do not unnecessarily ask the user to repeat the previous question.\n\n"
+
+        "LANGUAGE RULE:\n"
+        "Reply in the same language/style used by the user.\n"
+        "If the user writes Hindi in Roman script, reply in Roman Hindi.\n"
+        "If the user writes Devanagari Hindi, reply in Devanagari Hindi.\n"
+        "If the user writes English, reply in English.\n\n"
+
+        "FACT RULE:\n"
+        "Give clear and honest answers.\n"
+        "Do not invent facts.\n"
+        "For current/latest information, use web grounding when available.\n\n"
+
+        "Previous conversation:\n"
+        + previous
+        + "\n\nCurrent user message:\n"
+        + message
+    )
+
+    try:
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=prompt
+        )
+
+        answer = response.text or "मुझे कोई उत्तर नहीं मिला।"
+
+        new_history = history + [
+            {
+                "role": "user",
+                "content": message
+            },
+            {
+                "role": "assistant",
+                "content": answer
+            }
+        ]
+
+        return new_history, new_history, ""
+
+    except Exception as e:
+        error = "❌ समस्या आ गई: " + str(e)
+
+        new_history = history + [
+            {
+                "role": "user",
+                "content": message
+            },
+            {
+                "role": "assistant",
+                "content": error
+            }
+        ]
+
+        return new_history, new_history, ""
+
+
+def new_chat():
+    return [], []
+
+
+def handle_like(data: gr.LikeData):
+    if data.liked:
+        print("👍 Like")
+    else:
+        print("👎 Dislike")
+
+
+CSS = """
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1e1e2e' },
-  header: { height: 60, backgroundColor: '#11111b', justifyContent: 'center', paddingHorizontal: 15, borderBottomWidth: 1, borderColor: '#313244' },
-  headerText: { color: '#cdd6f4', fontSize: 18, fontWeight: 'bold' },
-  mainBody: { flex: 1, flexDirection: 'row' },
-  sidebar: { width: '35%', backgroundColor: '#181825', padding: 10, borderRightWidth: 1, borderColor: '#313244' },
-  sectionContainer: { marginBottom: 15 },
-  sectionTitle: { color: '#a6adc8', fontSize: 11, fontWeight: 'bold', marginBottom: 5, uppercase: true },
-  menuButton: { paddingVertical: 8, paddingHorizontal: 5, borderRadius: 5, marginBottom: 2 },
-  activeMenu: { backgroundColor: '#45475a' },
-  menuText: { color: '#cdd6f4', fontSize: 13 },
-  chatArea: { width: '65%', backgroundColor: '#1e1e2e', justifyContent: 'space-between' },
-  chatHeader: { padding: 10, backgroundColor: '#181825', borderBottomWidth: 1, borderColor: '#313244' },
-  chatHeaderTitle: { color: '#fab387', fontWeight: 'bold', fontSize: 14 },
-  messageList: { flex: 1, padding: 10 },
-  aiMessage: { backgroundColor: '#313244', padding: 12, borderRadius: 10, maxWidth: '85%', marginBottom: 10 },
-  inputContainer: { flexDirection: 'row', padding: 10, backgroundColor: '#181825', alignItems: 'center' },
-  input: { flex: 1, backgroundColor: '#313244', color: '#cdd6f4', borderRadius: 20, paddingHorizontal: 15, height: 40 },
-  sendButton: { marginLeft: 10, backgroundColor: '#89b4fa', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20 },
-  sendButtonText: { color: '#11111b', fontWeight: 'bold' }
-});
+body {
+    background: white !important;
+}
+
+.gradio-container {
+    max-width: 100% !important;
+    padding: 0 !important;
+}
+
+#chat {
+    height: calc(100vh - 150px) !important;
+}
+
+#bottom {
+    position: fixed !important;
+    left: 50% !important;
+    bottom: 10px !important;
+    transform: translateX(-50%) !important;
+    width: min(94%, 850px) !important;
+    z-index: 9999 !important;
+    background: white !important;
+    border: 1px solid #dddddd !important;
+    border-radius: 25px !important;
+    padding: 5px !important;
+    box-shadow: 0 3px 18px rgba(0,0,0,0.12) !important;
+}
+
+#question textarea {
+    border: 0 !important;
+    box-shadow: none !important;
+    font-size: 16px !important;
+    padding: 12px !important;
+}
+
+#mic button,
+#send button {
+    min-width: 48px !important;
+    min-height: 48px !important;
+    border-radius: 20px !important;
+    font-size: 20px !important;
+}
+
+@media (max-width: 600px) {
+    #chat {
+        height: calc(100vh - 140px) !important;
+    }
+
+    #bottom {
+        width: 96% !important;
+    }
+}
+"""
+
+
+with gr.Blocks(title="Nexora AI") as app:
+
+    with gr.Row():
+        menu = gr.Button("☰", scale=0, min_width=45)
+        gr.Markdown("## 🤖 Nexora AI")
+
+    with gr.Sidebar(
+        label="Nexora AI",
+        open=False,
+        width=270
+    ):
+        gr.Markdown("# 🤖 Nexora AI")
+
+        new_chat_btn = gr.Button("🆕 नया चैट")
+        gr.Button("🗂️ Chat History")
+        gr.Button("🌐 Web Search")
+        gr.Button("🖼️ Create Image")
+        gr.Button("✍️ Write / Edit")
+        gr.Button("📁 Files")
+        gr.Button("🎙️ Voice")
+        gr.Button("⚙️ Settings")
+
+    history_state = gr.State([])
+
+    chat = gr.Chatbot(
+        value=[],
+        show_label=False,
+        autoscroll=True,
+        height="calc(100vh - 150px)",
+        elem_id="chat",
+        buttons=["copy"],
+        feedback_options=["Like", "Dislike"]
+    )
+
+    # Like / Dislike
+    chat.like(
+        handle_like,
+        None,
+        None
+    )
+
+    with gr.Row(elem_id="bottom"):
+
+        question = gr.Textbox(
+            placeholder="Nexora AI से कुछ पूछें...",
+            show_label=False,
+            lines=1,
+            max_lines=4,
+            scale=8,
+            elem_id="question"
+        )
+
+        mic = gr.Button(
+            "🎤",
+            scale=0,
+            min_width=50,
+            elem_id="mic"
+        )
+
+        send = gr.Button(
+            "➤",
+            scale=0,
+            min_width=50,
+            elem_id="send"
+        )
+
+    send.click(
+        ask_nexora,
+        inputs=[question, history_state],
+        outputs=[chat, history_state, question]
+    )
+
+    question.submit(
+        ask_nexora,
+        inputs=[question, history_state],
+        outputs=[chat, history_state, question]
+    )
+
+    new_chat_btn.click(
+        new_chat,
+        outputs=[chat, history_state]
+    )
+
+
+app.launch(
+    server_name="0.0.0.0",
+    server_port=int(os.environ.get("PORT", "10000")),
+    css=CSS
+  )
