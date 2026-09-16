@@ -12,18 +12,13 @@ def ask_nexora(message, history):
     history = history or []
 
     if not message or not message.strip():
-        return history, ""
+        return history, history, ""
 
-    # पुरानी बातचीत Gemini को भेजना
     previous = ""
-    for item in history[-10:]:
-        if isinstance(item, dict):
-            role = item.get("role", "")
-            content = item.get("content", "")
-            if role == "user":
-                previous += "User: " + str(content) + "\n"
-            elif role == "assistant":
-                previous += "Nexora AI: " + str(content) + "\n"
+
+    for user_msg, ai_msg in history[-10:]:
+        previous += "User: " + str(user_msg) + "\n"
+        previous += "Nexora AI: " + str(ai_msg) + "\n"
 
     prompt = (
         "You are Nexora AI, a helpful multilingual AI assistant.\n"
@@ -45,27 +40,20 @@ def ask_nexora(message, history):
 
         answer = response.text or "मुझे कोई उत्तर नहीं मिला।"
 
-        history = history + [
-            {"role": "user", "content": message},
-            {"role": "assistant", "content": answer}
-        ]
+        new_history = history + [(message, answer)]
 
-        # खाली input box + updated chat
-        return history, ""
+        return new_history, new_history, ""
 
     except Exception as e:
         error = "❌ समस्या आ गई: " + str(e)
 
-        history = history + [
-            {"role": "user", "content": message},
-            {"role": "assistant", "content": error}
-        ]
+        new_history = history + [(message, error)]
 
-        return history, ""
+        return new_history, new_history, ""
 
 
 def new_chat():
-    return [], ""
+    return [], []
 
 
 CSS = """
@@ -83,31 +71,23 @@ body {
     padding: 0 !important;
 }
 
-#header {
-    height: 55px;
-    display: flex;
-    align-items: center;
-    padding: 0 14px;
-    border-bottom: 1px solid #eeeeee;
-}
-
 #chat {
-    height: calc(100vh - 145px) !important;
-    min-height: 400px !important;
+    height: calc(100vh - 150px) !important;
+    overflow-y: auto !important;
 }
 
 #bottom {
     position: fixed !important;
-    left: 50%;
-    bottom: 10px;
-    transform: translateX(-50%);
-    width: min(94%, 850px);
-    z-index: 1000;
-    background: white;
-    border: 1px solid #dddddd;
-    border-radius: 25px;
-    padding: 5px;
-    box-shadow: 0 3px 18px rgba(0,0,0,0.12);
+    left: 50% !important;
+    bottom: 10px !important;
+    transform: translateX(-50%) !important;
+    width: min(94%, 850px) !important;
+    z-index: 9999 !important;
+    background: white !important;
+    border: 1px solid #ddd !important;
+    border-radius: 25px !important;
+    padding: 5px !important;
+    box-shadow: 0 3px 18px rgba(0,0,0,0.12) !important;
 }
 
 #question textarea {
@@ -127,12 +107,11 @@ body {
 
 @media (max-width: 600px) {
     #chat {
-        height: calc(100vh - 135px) !important;
+        height: calc(100vh - 140px) !important;
     }
 
     #bottom {
-        width: 96%;
-        bottom: 8px;
+        width: 96% !important;
     }
 }
 """
@@ -140,18 +119,16 @@ body {
 
 with gr.Blocks(title="Nexora AI") as app:
 
-    # ऊपर का छोटा Header
-    with gr.Row(elem_id="header"):
+    with gr.Row():
         menu = gr.Button("☰", scale=0, min_width=45)
-        gr.Markdown("### 🤖 Nexora AI")
+        gr.Markdown("## 🤖 Nexora AI")
 
-    # Sidebar
     with gr.Sidebar(
         label="Nexora AI",
         open=False,
         width=270
     ):
-        gr.Markdown("## 🤖 Nexora AI")
+        gr.Markdown("# 🤖 Nexora AI")
 
         new_chat_btn = gr.Button("🆕 नया चैट")
         gr.Button("🗂️ Chat History")
@@ -162,26 +139,16 @@ with gr.Blocks(title="Nexora AI") as app:
         gr.Button("🎙️ Voice")
         gr.Button("⚙️ Settings")
 
-    # Chat area
-    history = gr.State([])
+    history_state = gr.State([])
 
     chat = gr.Chatbot(
         value=[],
-        type="messages",
-        autoscroll=True,
-        height="calc(100vh - 145px)",
+        height="calc(100vh - 150px)",
         show_label=False,
-        elem_id="chat",
-        placeholder=(
-            "<div style='text-align:center;"
-            "padding-top:20vh;'>"
-            "<h1>🤖 Nexora AI</h1>"
-            "<p>आपकी AI सहायता के लिए तैयार हूँ</p>"
-            "</div>"
-        )
+        autoscroll=True,
+        elem_id="chat"
     )
 
-    # नीचे हमेशा रहने वाला Input
     with gr.Row(elem_id="bottom"):
 
         question = gr.Textbox(
@@ -190,8 +157,7 @@ with gr.Blocks(title="Nexora AI") as app:
             lines=1,
             max_lines=4,
             scale=8,
-            elem_id="question",
-            autofocus=True
+            elem_id="question"
         )
 
         mic = gr.Button(
@@ -208,27 +174,21 @@ with gr.Blocks(title="Nexora AI") as app:
             elem_id="send"
         )
 
-    # Send button
     send.click(
         ask_nexora,
-        inputs=[question, history],
-        outputs=[chat, history, question]
+        inputs=[question, history_state],
+        outputs=[chat, history_state, question]
     )
 
-    # Enter दबाने पर भी भेजे
     question.submit(
         ask_nexora,
-        inputs=[question, history],
-        outputs=[chat, history, question]
+        inputs=[question, history_state],
+        outputs=[chat, history_state, question]
     )
 
-    # New Chat
     new_chat_btn.click(
         new_chat,
-        outputs=[history, question]
-    ).then(
-        lambda: [],
-        outputs=chat
+        outputs=[chat, history_state]
     )
 
 
@@ -236,4 +196,4 @@ app.launch(
     server_name="0.0.0.0",
     server_port=int(os.environ.get("PORT", "10000")),
     css=CSS
-            )
+    )
