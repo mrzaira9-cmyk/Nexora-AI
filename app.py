@@ -1,137 +1,383 @@
 <!DOCTYPE html>
 <html lang="hi">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexora AI — Multi-Feature Dashboard</title>
-    <!-- Tailwind CSS for Modern UI -->
-    <script src="https://jsdelivr.net"></script>
-    <!-- FontAwesome for Icons -->
-    <link rel="stylesheet" href="https://cloudflare.com">
-</head>
-<body class="bg-gray-900 text-gray-100 font-sans h-screen flex overflow-hidden">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- 1. SIDEBAR: Chat History & Account -->
-    <div class="w-80 bg-gray-950 flex flex-col justify-between border-r border-gray-800 hidden md:flex">
-        <div class="p-4 flex flex-col flex-1 overflow-y-auto">
-            <!-- App Logo & Title -->
-            <div class="flex items-center gap-3 mb-6">
-                <div class="bg-blue-600 p-2 rounded-lg text-white font-bold text-xl">🚀</div>
-                <h1 class="text-xl font-bold tracking-wide">Nexora AI</h1>
-            </div>
+<title>Nexora AI</title>
 
-            <!-- New Chat Button -->
-            <button onclick="newChat()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 transition mb-6 shadow-lg">
-                <i class="fa-solid class='fa-plus'"></i> New Chat
-            </button>
+<style>
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
 
-            <!-- Search Chats -->
-            <div class="relative mb-4">
-                <input type="text" placeholder="Search chats..." class="w-full bg-gray-900 border border-gray-700 rounded-lg py-1.5 pl-9 pr-4 text-sm focus:outline-none focus:border-blue-500">
-                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-500 text-sm"></i>
-            </div>
+:root {
+    --bg: #ffffff;
+    --sidebar: #f7f7f8;
+    --text: #202123;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --hover: #ececec;
+    --card: #ffffff;
+    --input: #ffffff;
+    --accent: #111827;
+    --user: #f0f0f0;
+}
 
-            <!-- Chat History List -->
-            <div class="flex-1">
-                <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent Conversations</p>
-                <div class="space-y-1" id="chat-history-list">
-                    <div class="flex items-center justify-between p-2 rounded-lg bg-gray-800 group cursor-pointer">
-                        <div class="flex items-center gap-2 truncate">
-                            <i class="fa-regular fa-comment text-gray-400"></i>
-                            <span class="text-sm truncate" id="chat-title-1">Python Flask Setup Guide</span>
-                        </div>
-                        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                            <button onclick="renameChat(1)" class="text-gray-400 hover:text-white p-1 text-xs"><i class="fa-solid fa-pen"></i></button>
-                            <button onclick="deleteChat(this)" class="text-red-400 hover:text-red-500 p-1 text-xs"><i class="fa-solid fa-trash"></i></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+body.dark {
+    --bg: #212121;
+    --sidebar: #171717;
+    --text: #f5f5f5;
+    --muted: #a1a1aa;
+    --border: #3a3a3a;
+    --hover: #2f2f2f;
+    --card: #212121;
+    --input: #2f2f2f;
+    --accent: #ffffff;
+    --user: #343434;
+}
 
-        <!-- User Profile & Admin Settings Footer -->
-        <div class="p-4 border-t border-gray-800 bg-gray-950 flex flex-col gap-2">
-            <button onclick="openModal('devSettingsModal')" class="w-full text-left text-sm text-gray-400 hover:text-white flex items-center gap-2 p-2 rounded-lg hover:bg-gray-900 transition">
-                <i class="fa-solid fa-sliders"></i> Developer / Admin Settings
-            </button>
-            <div class="flex items-center justify-between p-2 rounded-lg bg-gray-900">
-                <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-sm text-white">U</div>
-                    <div>
-                        <p class="text-sm font-medium">Aman Kumar</p>
-                        <p class="text-xs text-gray-500">Pro Account</p>
-                    </div>
-                </div>
-                <button onclick="openModal('accountModal')" class="text-gray-400 hover:text-white"><i class="fa-solid fa-gear"></i></button>
-            </div>
-        </div>
-    </div>
+body {
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        Arial,
+        sans-serif;
 
-    <!-- MAIN INTERFACE AREA -->
-    <div class="flex-1 flex flex-col h-full bg-gray-900">
-        
-        <!-- 2. TOP NAVBAR: Model Controls & Web Search Toggle -->
-        <header class="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-gray-900/50 backdrop-blur-md z-10">
-            <div class="flex items-center gap-4">
-                <!-- AI Model Selector -->
-                <select id="modelSelect" class="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-500 cursor-pointer">
-                    <option value="nexora-fast">🤖 Nexora AI - Fast (Default)</option>
-                    <option value="nexora-pro">🧠 Nexora AI - Pro (Advanced Context)</option>
-                    <option value="nexora-vision">🖼️ Nexora Vision (Image Analysis)</option>
-                </select>
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow: hidden;
+}
 
-                <!-- Web Search Toggle -->
-                <label class="relative inline-flex items-center cursor-pointer select-none">
-                    <input type="checkbox" id="webSearchToggle" class="sr-only peer">
-                    <div class="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                    <span class="ms-3 text-sm font-medium text-gray-300 flex items-center gap-1"><i class="fa-solid fa-earth-americas text-blue-400"></i> Web Search</span>
-                </label>
-            </div>
+/* =========================
+   APP
+========================= */
 
-            <!-- Voice Controls Toolbar -->
-            <div class="flex items-center gap-3">
-                <button onclick="toggleVoiceOutput()" id="voiceOutputBtn" class="p-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white title='Toggle Text-to-Speech'">
-                    <i id="voiceIcon" class="fa-solid fa-volume-high"></i>
-                </button>
-                <button onclick="openModal('voiceConfigModal')" class="text-sm bg-gray-800 hover:bg-gray-700 border border-gray-700 px-3 py-1.5 rounded-lg flex items-center gap-1">
-                    <i class="fa-solid fa-microphone-lines"></i> Voice Settings
-                </button>
-            </div>
-        </header>
+.app {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+}
 
-        <!-- 3. CHAT MESSAGES STREAM -->
-        <main class="flex-1 overflow-y-auto p-6 space-y-6 flex flex-col justify-end" id="chat-window">
-            <!-- Initial AI Message with Memory / Instructions State -->
-            <div class="flex items-start gap-4 max-w-3xl">
-                <div class="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-md">🤖</div>
-                <div class="bg-gray-800/60 border border-gray-700/50 rounded-2xl p-4 rounded-tl-none shadow-sm">
-                    <p class="text-sm leading-relaxed mb-2 text-gray-200">Pranam! Main Nexora AI hun. Main Hindi, English aur anya bhashao ko samajh sakta hun. Main aapki text questions, files, aur images ko process karne ke liye taiyar hun. Bantiye aaj main aapki kya sahayata karu?</p>
-                    <div class="flex items-center gap-3 mt-3 text-xs text-gray-400 border-t border-gray-700/50 pt-2">
-                        <button onclick="copyText('Pranam! Main Nexora AI...')" class="hover:text-white flex items-center gap-1"><i class="fa-regular fa-copy"></i> Copy</button>
-                        <button onclick="reactMessage(this, 'like')" class="hover:text-blue-400 flex items-center gap-1"><i class="fa-regular fa-thumbs-up"></i> Like</button>
-                        <button onclick="reactMessage(this, 'dislike')" class="hover:text-red-400 flex items-center gap-1"><i class="fa-regular fa-thumbs-down"></i> Dislike</button>
-                        <button onclick="speakMessage('Pranam! Main Nexora AI hun.')" class="hover:text-green-400 flex items-center gap-1"><i class="fa-solid fa-volume-high"></i> Speak</button>
-                    </div>
-                </div>
-            </div>
-        </main>
+/* =========================
+   SIDEBAR
+========================= */
 
-        <!-- 4. BOTTOM INPUT CONTROLS SYSTEM -->
-        <footer class="p-4 bg-gray-900 border-t border-gray-800">
-            <div class="max-w-4xl mx-auto flex flex-col gap-2">
-                <!-- Attachments Feedback Badges Panel -->
-                <div id="attachment-badge-panel" class="flex flex-wrap gap-2 empty:hidden"></div>
+.sidebar {
+    width: 270px;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    transition: 0.25s;
+    flex-shrink: 0;
+}
 
-                <div class="bg-gray-800 border border-gray-700 rounded-xl p-2 flex flex-col shadow-inner">
-                    <!-- Text Area Input -->
-                    <textarea id="userInput" rows="2" placeholder="Ask Nexora anything... (or use microphone for voice input)" class="w-full bg-transparent resize-none focus:outline-none p-2 text-sm text-gray-100 placeholder-gray-500"></textarea>
-                    
-                    <!-- Controls Bar inside Input Field -->
-                    <div class="flex items-center justify-between border-t border-gray-700/60 pt-2 px-1 mt-1">
-                        <div class="flex items-center gap-1.5">
-                            <!-- Image Upload Hidden Trigger -->
-                            <input type="file" id="imageFile" accept="image/*" class="hidden" onchange="handleAttachment(this, 'Image')">
-                            <button onclick="document.getElementById('imageFile').click()" class="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700/50 rounded-lg transition" title="Upload Image / Image Editing"><i class="fa-regular fa-image text-base"></i></button>
+.logo-area {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
 
-                            <!-- Document File Upload Hidden Trigger -->
-                            <input type="file" id="docFile" accept=".pdf,.docx,.txt,.csv" class="hidden" onchange="handleAttachment(this, 'Document')">
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 20px;
+}
+
+.logo-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+        135deg,
+        #06b6d4,
+        #6366f1,
+        #a855f7
+    );
+    color: white;
+    font-weight: 800;
+}
+
+.icon-btn {
+    width: 38px;
+    height: 38px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 20px;
+}
+
+.icon-btn:hover {
+    background: var(--hover);
+}
+
+.new-chat {
+    width: 100%;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    padding: 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    text-align: left;
+    margin-bottom: 14px;
+}
+
+.new-chat:hover {
+    background: var(--hover);
+}
+
+.sidebar-title {
+    font-size: 12px;
+    color: var(--muted);
+    padding: 8px 10px;
+}
+
+.history {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.history-item {
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.history-item:hover {
+    background: var(--hover);
+}
+
+.sidebar-bottom {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+}
+
+.sidebar-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.sidebar-option:hover {
+    background: var(--hover);
+}
+
+/* =========================
+   MAIN
+========================= */
+
+.main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/* =========================
+   TOP BAR
+========================= */
+
+.topbar {
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+}
+
+.top-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.mobile-menu {
+    display: none;
+}
+
+.model-selector {
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 8px;
+}
+
+.model-selector:hover {
+    background: var(--hover);
+}
+
+.top-right {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* =========================
+   CHAT AREA
+========================= */
+
+.chat-area {
+    flex: 1;
+    overflow-y: auto;
+    scroll-behavior: smooth;
+}
+
+.welcome {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 30px 20px 180px;
+}
+
+.welcome-logo {
+    width: 62px;
+    height: 62px;
+    border-radius: 20px;
+    background:
+        linear-gradient(
+            135deg,
+            #06b6d4,
+            #6366f1,
+            #a855f7
+        );
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 30px;
+    font-weight: 800;
+    box-shadow: 0 8px 35px rgba(99,102,241,.25);
+}
+
+.welcome h1 {
+    margin-top: 22px;
+    font-size: 30px;
+    text-align: center;
+}
+
+.welcome p {
+    margin-top: 8px;
+    color: var(--muted);
+    text-align: center;
+    font-size: 15px;
+}
+
+.quick-grid {
+    width: min(850px, 100%);
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 38px;
+}
+
+.quick-card {
+    border: 1px solid var(--border);
+    background: var(--card);
+    border-radius: 13px;
+    padding: 16px;
+    cursor: pointer;
+    transition: .2s;
+}
+
+.quick-card:hover {
+    background: var(--hover);
+    transform: translateY(-1px);
+}
+
+.quick-icon {
+    font-size: 21px;
+    margin-bottom: 9px;
+}
+
+.quick-title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.quick-text {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+/* =========================
+   MESSAGES
+========================= */
+
+.messages {
+    max-width: 850px;
+    margin: 0 auto;
+    padding: 25px 18px 180px;
+    width: 100%;
+}
+
+.message {
+    display: flex;
+    gap: 13px;
+    margin-bottom: 28px;
+}
+
+.message.user {
+    justify-content: flex-end;
+}
+
+.message-content {
+    max-width: 78%;
+}
+
+.user .message-content {
+    background: var(--user);
+    padding: 11px 15px;
+    border-radius: 17px;
+}
+
+.avatar {
+    width: 31px;
+    height: 31px;
+    min-width: 31px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(
+        135deg,
+        #06b6d4,
+        #6366f1,
+        #a855f7
+    );
+    color: white;
+    font-size: 13px
