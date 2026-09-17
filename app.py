@@ -775,10 +775,70 @@ with gr.Blocks(
                 )
 
                 with gr.Row(elem_classes=["main-row"]):
-                    send_btn = gr.Button("➤ with gr.Row(elem_classes=["main-row"]):
-    send_btn = gr.Button("➤ भेजें",
-    variant="primary")
-    mic_btn = gr.Button("🎤")
-    live_start = gr.Button("🔴 Live")
-    live_stop = gr.Button("⏹️")
-                                         
+                    send_btn = gr.Button("➤ ", variant="primary")
+                    mic_btn = gr.Button("🎤")
+                    live_start = gr.Button("🔴 Live")
+                    live_stop = gr.Button("⏹️")
+
+                new_chat_btn = gr.Button(
+                    "＋ नया चैट",
+                    elem_id="new-chat"
+                )
+
+    history_state = gr.State([])
+
+    send_btn.click(
+        fn=ask_nexora,
+        inputs=[question, history_state],
+        outputs=[chat_html, history_state, question]
+    )
+
+    question.submit(
+        fn=ask_nexora,
+        inputs=[question, history_state],
+        outputs=[chat_html, history_state, question]
+    )
+
+    new_chat_btn.click(
+        fn=new_chat,
+        inputs=[],
+        outputs=[chat_html, history_state]
+    )
+
+    mic_btn.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="() => { window.startNexoraMic(); }"
+    )
+
+    # Separate browser-only token state for Live Voice.
+    live_token = gr.State("")
+
+    live_start.click(
+        fn=create_live_token,
+        inputs=[],
+        outputs=[live_token]
+    )
+
+    live_token.change(
+        fn=None,
+        inputs=[live_token],
+        outputs=[],
+        js="token => { window.startNexoraLive(token); }"
+    )
+
+    live_stop.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="() => { window.stopNexoraLive(); }"
+    )
+
+
+if __name__ == "__main__":
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=int(os.environ.get("PORT", "10000"))
+    )
+    
