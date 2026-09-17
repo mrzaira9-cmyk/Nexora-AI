@@ -775,4 +775,10 @@ with gr.Blocks(
                 )
 
                 with gr.Row(elem_classes=["main-row"]):
-                    send_btn = gr.Button("➤
+                    send_btn = gr.Button("➤ with gr.Row(elem_classes=["main-row"]):
+    send_btn = gr.Button("➤ भेजें",
+    variant="primary")
+    mic_btn = gr.Button("🎤")
+    live_start = gr.Button("🔴 Live")
+    live_stop = gr.Button("⏹️")
+                                         
