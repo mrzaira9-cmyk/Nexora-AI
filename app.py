@@ -1,844 +1,124 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatGPT Clone UI</title>
+    <!-- Tailwind CSS for modern and clean design -->
+    <script src="https://jsdelivr.net"></script>
+    <!-- FontAwesome for exact match icons -->
+    <link rel="stylesheet" href="https://cloudflare.com">
+    <style>
+        /* Custom scrollbar hiding for clean mobile view */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-white text-gray-800 font-sans h-screen flex flex-col justify-between overflow-hidden">
 
-import os
-import datetime
-import html
-import gradio as gr
-from google import genai
-
-# ============================================================
-# Nexora AI - Complete app.py
-# ============================================================
-
-API_KEY = os.environ.get("GEMINI_API_KEY")
-if not API_KEY:
-    raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
-
-TEXT_MODEL = "gemini-3.5-flash-lite"
-LIVE_MODEL = "gemini-3.8-live"
-
-client = genai.Client(api_key=API_KEY)
-
-
-SYSTEM_PROMPT = """
-तुम Nexora AI हो।
-हमेशा सरल, स्पष्ट और स्वाभाविक हिंदी में उत्तर दो।
-हिंदी सवाल का उत्तर देवनागरी हिंदी में दो।
-Roman Hindi या Hinglish में उत्तर मत दो, जब तक उपयोगकर्ता विशेष रूप से ऐसा न कहे।
-तथात्मक प्रश्नों का सही और स्पष्ट उत्तर दो।
-"""
-
-
-def make_chat_html(history):
-    """Build the visible ChatGPT-style conversation area."""
-    if not history:
-        return """
-        <div class="nexora-empty">
-            <div class="nexora-logo">🤖</div>
-            <h2>Nexora AI</h2>
-            <p>मुझसे अपना सवाल पूछिए</p>
+    <!-- 1. TOP HEADER BAR -->
+    <header class="flex justify-between items-center px-4 py-3 bg-white border-b border-gray-100 sticky top-0 z-50">
+        <!-- Sidebar Menu Icon -->
+        <button class="text-2xl text-gray-600 focus:outline-none">
+            <i class="fa-solid fa-bars-staggered"></i>
+        </button>
+        <!-- Right Action Icons (New Chat & Menu) -->
+        <div class="flex items-center gap-5">
+            <button class="text-xl text-gray-600 focus:outline-none">
+                <i class="fa-regular fa-pen-to-square"></i>
+            </button>
+            <button class="text-xl text-gray-600 focus:outline-none">
+                <i class="fa-solid fa-ellipsis-vertical"></i>
+            </button>
         </div>
-        """
+    </header>
 
-    parts = ['<div class="nexora-chat-list">']
-
-    for item in history:
-        role = item.get("role")
-        content = item.get("content", "")
-        safe = html.escape(str(content)).replace("\n", "<br>")
-
-        if role == "user":
-            parts.append(f"""
-            <div class="nexora-message user-message">
-                <div class="message-bubble user-bubble">{safe}</div>
+    <!-- 2. CHAT MESSAGES AREA -->
+    <main id="chat-container" class="flex-1 overflow-y-auto px-4 py-4 space-y-6 no-scrollbar">
+        <!-- User Initials / Profile Marker (Top Right Corner inside chat if needed, matching 'H') -->
+        <div class="flex justify-end mb-2">
+            <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm">
+                H
             </div>
-            """)
-        elif role == "assistant":
-            parts.append(f"""
-            <div class="nexora-message assistant-message">
-                <div class="assistant-name">🤖 Nexora AI</div>
-                <div class="message-bubble assistant-bubble nexora-answer">{safe}</div>
-                <div class="answer-actions">
-                    <button class="answer-action" data-action="like" title="Like">👍</button>
-                    <button class="answer-action" data-action="dislike" title="Dislike">👎</button>
-                    <button class="answer-action" data-action="sound" title="Sound">🔊</button>
-                    <button class="answer-action" data-action="copy" title="Copy">📋</button>
-                    <button class="answer-action" data-action="share" title="Share">↗️</button>
-                    <button class="answer-action" data-action="more" title="More">⋯</button>
-                </div>
+        </div>
+
+        <!-- ChatGPT Response Box -->
+        <div class="space-y-3 max-w-3xl">
+            <!-- Bot Answer Text -->
+            <p id="bot-response" class="text-[16px] leading-relaxed text-gray-900 font-normal">
+                हाँ भाई 😊 बताइए, क्या करना है?
+            </p>
+
+            <!-- THE 6 OPTIONS TOOLBAR (Exact Match) -->
+            <div class="flex items-center gap-5 text-gray-400 text-[15px] pt-1 pl-1">
+                <!-- 1. Copy -->
+                <button class="hover:text-gray-600 transition-colors" title="Copy"><i class="fa-regular fa-copy"></i></button>
+                <!-- 2. Thumbs Up -->
+                <button class="hover:text-gray-600 transition-colors" title="Like"><i class="fa-regular fa-thumbs-up"></i></button>
+                <!-- 3. Thumbs Down -->
+                <button class="hover:text-gray-600 transition-colors" title="Dislike"><i class="fa-regular fa-thumbs-down"></i></button>
+                <!-- 4. Read Aloud / Speaker -->
+                <button class="hover:text-gray-600 transition-colors" title="Read Aloud"><i class="fa-solid fa-volume-high"></i></button>
+                <!-- 5. Share -->
+                <button class="hover:text-gray-600 transition-colors" title="Share"><i class="fa-solid fa-share-nodes"></i></button>
+                <!-- 6. More (Three Dots) -->
+                <button class="hover:text-gray-600 transition-colors" title="More"><i class="fa-solid fa-ellipsis-vertical"></i></button>
             </div>
-            """)
+        </div>
+    </main>
 
-    parts.append("</div>")
-    return "".join(parts)
+    <!-- 3. BOTTOM INPUT BAR -->
+    <footer class="p-3 bg-white border-t border-gray-100">
+        <div class="flex items-center gap-3 max-w-3xl mx-auto bg-gray-100 rounded-full px-4 py-2.5">
+            <!-- Attachment Plus Icon -->
+            <button class="text-gray-500 text-xl focus:outline-none">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+            
+            <!-- Input Text Box -->
+            <input type="text" id="user-input" placeholder="Reply to ChatGPT" 
+                   class="flex-1 bg-transparent border-none outline-none text-[15px] text-gray-800 placeholder-gray-400">
+            
+            <!-- Microphone Icon -->
+            <button class="text-gray-500 text-lg focus:outline-none">
+                <i class="fa-solid fa-microphone"></i>
+            </button>
+            
+            <!-- Voice Mode / Audio Wave Blue Button -->
+            <button onclick="simulateFastResponse()" class="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center focus:outline-none shadow-sm hover:bg-blue-700 transition-all">
+                <i class="fa-solid fa-waveform text-xs"></i>
+            </button>
+        </div>
+    </footer>
 
+    <!-- JAVASCRIPT FOR FAST AUTO-SCROLL AND STREAMING EFFECT -->
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const botResponse = document.getElementById('bot-response');
 
-def ask_nexora(question, history):
-    question = (question or "").strip()
-    history = history or []
+        // Fast Auto-Scroll Function
+        function fastScrollToBottom() {
+            // instant scroll setup for lightning fast responses
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
 
-    if not question:
-        return make_chat_html(history), history, ""
-
-    context = []
-    for item in history[-10:]:
-        if isinstance(item, dict) and item.get("content"):
-            role = item.get("role", "")
-            content = item.get("content", "")
-            context.append(f"{role}: {content}")
-
-    prompt = SYSTEM_PROMPT
-
-    if context:
-        prompt += "\n\nपिछली बातचीत:\n" + "\n".join(context)
-
-    prompt += f"\n\nनया सवाल:\n{question}"
-
-    try:
-        response = client.models.generate_content(
-            model=TEXT_MODEL,
-            contents=prompt
-        )
-        answer = (response.text or "मुझे अभी उत्तर नहीं मिला।").strip()
-    except Exception as exc:
-        answer = f"⚠️ उत्तर देने में समस्या हुई:\n{exc}"
-
-    new_history = list(history)
-    new_history.append({"role": "user", "content": question})
-    new_history.append({"role": "assistant", "content": answer})
-
-    return make_chat_html(new_history), new_history, ""
-
-
-def new_chat():
-    return make_chat_html([]), []
-
-
-def create_live_token():
-    now = datetime.datetime.now(datetime.timezone.utc)
-
-    token = client.auth_tokens.create(
-        config={
-            "uses": 1,
-            "expire_time": now + datetime.timedelta(minutes=30),
-            "new_session_expire_time": now + datetime.timedelta(minutes=1),
-            "live_connect_constraints": {
-                "model": LIVE_MODEL,
-                "config": {
-                    "response_modalities": ["AUDIO"],
-                    "session_resumption": {}
+        // Test Function: Fast Response Typing Simulation
+        function simulateFastResponse() {
+            const sampleText = "आपका कोड अब बिल्कुल तैयार है भाई! इसमें ऑटो-स्क्रॉलिंग को फ़ास्ट कर दिया गया है और नीचे दिए गए छह ऑप्शंस भी जोड़ दिए गए हैं।";
+            botResponse.innerHTML = "";
+            let i = 0;
+            
+            // Fast Interval for Streaming Text Effect
+            const interval = setInterval(() => {
+                if (i < sampleText.length) {
+                    botResponse.innerHTML += sampleText.charAt(i);
+                    i++;
+                    fastScrollToBottom(); // Keeps scrolling instantly as text generates
+                } else {
+                    clearInterval(interval);
                 }
-            }
+            }, 20); // 20ms for super-fast text delivery
         }
-    )
-
-    return token.name
-
-
-CSS = r"""
-:root {
-    --nexora-border: #e5e7eb;
-    --nexora-soft: #f7f7f8;
-    --nexora-user: #eaf3ff;
-}
-
-body {
-    margin: 0 !important;
-}
-
-.gradio-container {
-    max-width: 100% !important;
-    padding: 0 !important;
-}
-
-#nexora-app {
-    min-height: 100vh;
-}
-
-#chat-wrap {
-    height: calc(100vh - 178px);
-    min-height: 430px;
-    overflow-y: auto;
-    padding: 18px 12px 12px 12px;
-    box-sizing: border-box;
-    scroll-behavior: smooth;
-}
-
-#chat-html {
-    max-width: 900px;
-    margin: 0 auto;
-}
-
-.nexora-empty {
-    min-height: calc(100vh - 245px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    color: #6b7280;
-}
-
-.nexora-empty .nexora-logo {
-    font-size: 52px;
-    margin-bottom: 4px;
-}
-
-.nexora-empty h2 {
-    margin: 0;
-    color: #222;
-    font-size: 28px;
-}
-
-.nexora-empty p {
-    margin-top: 8px;
-    font-size: 16px;
-}
-
-.nexora-chat-list {
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-    padding-bottom: 12px;
-}
-
-.nexora-message {
-    display: flex;
-    flex-direction: column;
-    max-width: 100%;
-}
-
-.user-message {
-    align-items: flex-end;
-}
-
-.assistant-message {
-    align-items: flex-start;
-}
-
-.message-bubble {
-    max-width: min(82%, 760px);
-    padding: 11px 14px;
-    border-radius: 16px;
-    line-height: 1.55;
-    font-size: 16px;
-    word-break: break-word;
-}
-
-.user-bubble {
-    background: var(--nexora-user);
-    border-bottom-right-radius: 5px;
-}
-
-.assistant-bubble {
-    background: var(--nexora-soft);
-    border: 1px solid var(--nexora-border);
-    border-bottom-left-radius: 5px;
-}
-
-.assistant-name {
-    font-size: 13px;
-    font-weight: 600;
-    margin: 0 0 5px 4px;
-}
-
-.answer-actions {
-    display: flex;
-    gap: 5px;
-    margin: 6px 0 0 2px;
-}
-
-.answer-action {
-    border: 0;
-    background: transparent;
-    border-radius: 8px;
-    padding: 5px 8px;
-    font-size: 17px;
-    cursor: pointer;
-}
-
-.answer-action:hover {
-    background: #eeeeee;
-}
-
-#bottom {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 50;
-    background: rgba(255,255,255,.97);
-    border-top: 1px solid var(--nexora-border);
-    padding: 7px 10px 8px;
-}
-
-#bottom-inner {
-    max-width: 900px;
-    margin: 0 auto;
-}
-
-#question textarea {
-    font-size: 16px !important;
-    border-radius: 14px !important;
-    min-height: 48px !important;
-}
-
-.main-row {
-    gap: 7px !important;
-    margin-top: 6px;
-}
-
-.main-row button {
-    min-height: 42px !important;
-}
-
-.tool-row {
-    gap: 4px !important;
-    margin-top: 5px;
-}
-
-.tool-row button {
-    min-height: 38px !important;
-    font-size: 17px !important;
-}
-
-#new-chat button {
-    margin-top: 4px;
-    min-height: 34px !important;
-}
-
-#status {
-    text-align: center;
-    font-size: 13px;
-    min-height: 0 !important;
-}
-
-@media (max-width: 600px) {
-    #chat-wrap {
-        height: calc(100vh - 190px);
-        min-height: 360px;
-        padding: 12px 8px 8px;
-    }
-
-    .message-bubble {
-        max-width: 90%;
-        font-size: 15px;
-    }
-
-    .answer-action {
-        font-size: 16px;
-        padding: 5px 7px;
-    }
-
-    #bottom {
-        padding: 5px 7px 6px;
-    }
-}
-"""
-
-
-JS = r"""
-() => {
-    const S = {
-        rec: null,
-        live: null,
-        audioCtx: null,
-        processor: null,
-        stream: null,
-        source: null,
-        nextAudioTime: 0
-    };
-
-    function questionBox() {
-        return document.querySelector("#question textarea");
-    }
-
-    function setQuestion(text) {
-        const box = questionBox();
-        if (!box) return;
-
-        const setter = Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            "value"
-        ).set;
-
-        setter.call(box, text || "");
-        box.dispatchEvent(new Event("input", { bubbles: true }));
-        box.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-
-    function getAnswer(button) {
-        const message = button.closest(".assistant-message");
-        if (!message) return "";
-        const answer = message.querySelector(".nexora-answer");
-        return answer ? (answer.innerText || "").trim() : "";
-    }
-
-    function showStatus(text) {
-        const status = document.querySelector("#status");
-        if (status) status.innerText = text;
-    }
-
-    window.startNexoraMic = () => {
-        const Recognition =
-            window.SpeechRecognition || window.webkitSpeechRecognition;
-
-        if (!Recognition) {
-            alert("इस browser में Speech Recognition उपलब्ध नहीं है।");
-            return;
-        }
-
-        try {
-            if (S.rec) S.rec.stop();
-        } catch (e) {}
-
-        const recognition = new Recognition();
-        recognition.lang = "hi-IN";
-        recognition.continuous = false;
-        recognition.interimResults = false;
-
-        recognition.onstart = () => showStatus("🎤 सुन रहा हूँ...");
-        recognition.onend = () => showStatus("");
-
-        recognition.onresult = (event) => {
-            const text =
-                event.results &&
-                event.results[0] &&
-                event.results[0][0]
-                    ? event.results[0][0].transcript
-                    : "";
-
-            setQuestion(text);
-        };
-
-        recognition.onerror = (event) => {
-            console.log("Speech recognition:", event);
-            showStatus("⚠️ आवाज़ पहचान नहीं हो पाई।");
-            setTimeout(() => showStatus(""), 2500);
-        };
-
-        S.rec = recognition;
-        recognition.start();
-    };
-
-    async function copyText(text) {
-        if (!text) return;
-
-        try {
-            await navigator.clipboard.writeText(text);
-            showStatus("📋 उत्तर copy हो गया।");
-        } catch (e) {
-            const area = document.createElement("textarea");
-            area.value = text;
-            document.body.appendChild(area);
-            area.select();
-            document.execCommand("copy");
-            area.remove();
-            showStatus("📋 उत्तर copy हो गया।");
-        }
-
-        setTimeout(() => showStatus(""), 1800);
-    }
-
-    function speakText(text) {
-        if (!text) return;
-
-        window.speechSynthesis.cancel();
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "hi-IN";
-        utterance.rate = 0.9;
-        window.speechSynthesis.speak(utterance);
-    }
-
-    async function shareText(text) {
-        if (!text) return;
-
-        if (navigator.share) {
-            try {
-                await navigator.share({
-                    title: "Nexora AI",
-                    text: text
-                });
-                return;
-            } catch (e) {}
-        }
-
-        await copyText(text);
-        showStatus("↗️ Share उपलब्ध नहीं है, उत्तर copy कर दिया गया।");
-    }
-
-    document.addEventListener("click", async (event) => {
-        const button = event.target.closest(".answer-action");
-        if (!button) return;
-
-        const action = button.dataset.action;
-        const text = getAnswer(button);
-
-        if (action === "like") {
-            showStatus("👍 धन्यवाद! Feedback दर्ज हो गया।");
-        } else if (action === "dislike") {
-            showStatus("👎 धन्यवाद! Feedback दर्ज हो गया।");
-        } else if (action === "sound") {
-            speakText(text);
-        } else if (action === "copy") {
-            await copyText(text);
-        } else if (action === "share") {
-            await shareText(text);
-        } else if (action === "more") {
-            showStatus("⋯ Copy, Like, Dislike, Sound, Share और Live Voice उपलब्ध हैं।");
-        }
-
-        if (action === "like" || action === "dislike" || action === "more") {
-            setTimeout(() => showStatus(""), 2200);
-        }
-    });
-
-    function scrollChatToBottom() {
-        const wrap = document.querySelector("#chat-wrap");
-        if (wrap) {
-            setTimeout(() => {
-                wrap.scrollTop = wrap.scrollHeight;
-            }, 80);
-        }
-    }
-
-    // Scroll whenever the chat HTML changes.
-    const observer = new MutationObserver(() => scrollChatToBottom());
-
-    function startObserver() {
-        const target = document.querySelector("#chat-wrap");
-        if (target) observer.observe(target, { childList: true, subtree: true });
-    }
-
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", startObserver);
-    } else {
-        startObserver();
-    }
-
-    // ========================================================
-    // Gemini Live Voice
-    // ========================================================
-
-    function base64ToBytes(value) {
-        const raw = atob(value);
-        const bytes = new Uint8Array(raw.length);
-
-        for (let i = 0; i < raw.length; i++) {
-            bytes[i] = raw.charCodeAt(i);
-        }
-
-        return bytes;
-    }
-
-    function playPcm24k(base64) {
-        try {
-            if (!S.audioCtx) {
-                S.audioCtx = new (
-                    window.AudioContext || window.webkitAudioContext
-                )();
-            }
-
-            if (S.audioCtx.state === "suspended") {
-                S.audioCtx.resume();
-            }
-
-            const bytes = base64ToBytes(base64);
-            const view = new DataView(
-                bytes.buffer,
-                bytes.byteOffset,
-                bytes.byteLength
-            );
-
-            const samples = new Float32Array(Math.floor(bytes.length / 2));
-
-            for (let i = 0; i < samples.length; i++) {
-                samples[i] =
-                    view.getInt16(i * 2, true) / 32768.0;
-            }
-
-            const buffer = S.audioCtx.createBuffer(
-                1,
-                samples.length,
-                24000
-            );
-
-            buffer.copyToChannel(samples, 0);
-
-            const node = S.audioCtx.createBufferSource();
-            node.buffer = buffer;
-            node.connect(S.audioCtx.destination);
-
-            const startAt = Math.max(
-                S.audioCtx.currentTime,
-                S.nextAudioTime
-            );
-
-            node.start(startAt);
-            S.nextAudioTime = startAt + buffer.duration;
-        } catch (e) {
-            console.error("Live audio playback error:", e);
-        }
-    }
-
-    function bytesToBase64(bytes) {
-        let binary = "";
-        const chunk = 0x8000;
-
-        for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode(
-                ...bytes.subarray(i, i + chunk)
-            );
-        }
-
-        return btoa(binary);
-    }
-
-    async function startLiveMicrophone() {
-        S.stream = await navigator.mediaDevices.getUserMedia({
-            audio: true
-        });
-
-        const audioContext = new (
-            window.AudioContext || window.webkitAudioContext
-        )();
-
-        const source = audioContext.createMediaStreamSource(S.stream);
-
-        // ScriptProcessor is widely supported in browsers and keeps
-        // this client-side implementation simple.
-        const processor = audioContext.createScriptProcessor(
-            4096,
-            1,
-            1
-        );
-
-        S.processor = processor;
-        S.source = source;
-
-        processor.onaudioprocess = (event) => {
-            if (!S.live) return;
-
-            const input = event.inputBuffer.getChannelData(0);
-            const pcm = new Int16Array(input.length);
-
-            for (let i = 0; i < input.length; i++) {
-                const value = Math.max(-1, Math.min(1, input[i]));
-                pcm[i] = value < 0
-                    ? value * 32768
-                    : value * 32767;
-            }
-
-            const base64 = bytesToBase64(
-                new Uint8Array(pcm.buffer)
-            );
-
-            try {
-                S.live.sendRealtimeInput({
-                    audio: {
-                        data: base64,
-                        mimeType: "audio/pcm;rate=16000"
-                    }
-                });
-            } catch (e) {
-                console.log("Live input error:", e);
-            }
-        };
-
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-    }
-
-    window.startNexoraLive = async (token) => {
-        if (!token) {
-            alert("Live token नहीं मिला।");
-            return;
-        }
-
-        try {
-            showStatus("🔴 Live Voice शुरू हो रहा है...");
-
-            const module = await import(
-                "https://esm.sh/@google/genai"
-            );
-
-            const ai = new module.GoogleGenAI({
-                apiKey: token
-            });
-
-            S.live = await ai.live.connect({
-                model: "gemini-3.8-live",
-                config: {
-                    responseModalities: ["AUDIO"],
-                    systemInstruction:
-                        "तुम Nexora AI हो। सरल और स्पष्ट हिंदी में बोलो।",
-                    sessionResumption: {}
-                },
-                callbacks: {
-                    onmessage: (message) => {
-                        const parts =
-                            message &&
-                            message.serverContent &&
-                            message.serverContent.modelTurn &&
-                            message.serverContent.modelTurn.parts;
-
-                        if (!parts) return;
-
-                        for (const part of parts) {
-                            if (
-                                part.inlineData &&
-                                part.inlineData.data
-                            ) {
-                                playPcm24k(part.inlineData.data);
-                            }
-                        }
-                    },
-                    onerror: (error) => {
-                        console.error("Live error:", error);
-                        showStatus("⚠️ Live Voice में समस्या हुई।");
-                    },
-                    onclose: () => {
-                        showStatus("");
-                    }
-                }
-            });
-
-            await startLiveMicrophone();
-            showStatus("🔴 Live Voice चालू है — बोलिए...");
-        } catch (error) {
-            console.error("Live start error:", error);
-            showStatus("⚠️ Live Voice शुरू नहीं हो पाया।");
-            alert("Live Voice शुरू नहीं हो पाया।");
-            await stopLive();
-        }
-    };
-
-    async function stopLive() {
-        try {
-            if (S.processor) S.processor.disconnect();
-        } catch (e) {}
-
-        try {
-            if (S.source) S.source.disconnect();
-        } catch (e) {}
-
-        try {
-            if (S.stream) {
-                S.stream.getTracks().forEach(
-                    track => track.stop()
-                );
-            }
-        } catch (e) {}
-
-        try {
-            if (S.live) S.live.close();
-        } catch (e) {}
-
-        S.live = null;
-        S.processor = null;
-        S.source = null;
-        S.stream = null;
-
-        showStatus("");
-    }
-
-    window.stopNexoraLive = stopLive;
-}
-"""
-
-with gr.Blocks(
-    title="Nexora AI",
-    css=CSS,
-    js=JS
-) as app:
-
-    with gr.Column(elem_id="nexora-app"):
-        gr.Markdown(
-            "<h2 style='text-align:center;margin:8px 0 4px;'>🤖 Nexora AI</h2>"
-        )
-
-        with gr.Column(elem_id="chat-wrap"):
-            chat_html = gr.HTML(
-                make_chat_html([]),
-                elem_id="chat-html"
-            )
-
-        status = gr.Markdown("", elem_id="status")
-
-        with gr.Column(elem_id="bottom"):
-            with gr.Column(elem_id="bottom-inner"):
-                question = gr.Textbox(
-                    placeholder="यहाँ अपना सवाल लिखें या 🎤 बोलें...",
-                    show_label=False,
-                    lines=2,
-                    elem_id="question"
-                )
-
-                with gr.Row(elem_classes=["main-row"]):
-                    send_btn = gr.Button("➤ ", variant="primary")
-                    mic_btn = gr.Button("🎤")
-                    live_start = gr.Button("🔴 Live")
-                    live_stop = gr.Button("⏹️")
-
-                new_chat_btn = gr.Button(
-                    "＋ नया चैट",
-                    elem_id="new-chat"
-                )
-
-    history_state = gr.State([])
-
-    send_btn.click(
-        fn=ask_nexora,
-        inputs=[question, history_state],
-        outputs=[chat_html, history_state, question]
-    )
-
-    question.submit(
-        fn=ask_nexora,
-        inputs=[question, history_state],
-        outputs=[chat_html, history_state, question]
-    )
-
-    new_chat_btn.click(
-        fn=new_chat,
-        inputs=[],
-        outputs=[chat_html, history_state]
-    )
-
-    mic_btn.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="() => { window.startNexoraMic(); }"
-    )
-
-    # Separate browser-only token state for Live Voice.
-    live_token = gr.State("")
-
-    live_start.click(
-        fn=create_live_token,
-        inputs=[],
-        outputs=[live_token]
-    )
-
-    live_token.change(
-        fn=None,
-        inputs=[live_token],
-        outputs=[],
-        js="token => { window.startNexoraLive(token); }"
-    )
-
-    live_stop.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="() => { window.stopNexoraLive(); }"
-    )
-
-
-if __name__ == "__main__":
-    app.launch(
-        server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", "10000"))
-    )
-    
+    </script>
+</body>
+</html>
