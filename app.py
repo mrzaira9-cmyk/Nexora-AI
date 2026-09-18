@@ -553,17 +553,17 @@ JS = r"""
 """
 
 
-with gr.Blocks(title="Nexora AI", css=CSS, js=JS) as app:
+with gr.Blocks(title="Nexora AI") as app:
     with gr.Column(elem_id="app-shell"):
         with gr.Row(elem_id="topbar"):
             with gr.Column(scale=0, elem_classes=["top-button"]):
-                menu_btn = gr.Button("☰", elem_id="menu", show_label=False)
+                menu_btn = gr.Button("☰", elem_id="menu")
             with gr.Column(elem_id="top-title"):
                 gr.Markdown("<div id='brand-box'><div id='brand-icon'>N</div><div><div id='brand-name'>Nexora AI</div><div id='brand-sub'>AI Assistant</div></div></div>")
             with gr.Column(scale=0, elem_classes=["top-button"]):
-                search_btn = gr.Button("⌕", elem_id="search", show_label=False)
+                search_btn = gr.Button("⌕", elem_id="search")
             with gr.Column(scale=0, elem_classes=["top-button"]):
-                more_top = gr.Button("⋮", elem_id="top-more", show_label=False)
+                more_top = gr.Button("⋮", elem_id="top-more")
 
         gr.HTML("""
         <div id="side-panel">
@@ -619,8 +619,12 @@ with gr.Blocks(title="Nexora AI", css=CSS, js=JS) as app:
     live_stop.click(fn=None, inputs=[], outputs=[], js="() => { window.stopNexoraLive(); }")
 
 
-if __name__ == "__main__":
+   if __name__ == "__main__":
     app.launch(
         server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", "10000")),
+        server_port=int(os.environ.get("PORT", "7860")),
+        css=CSS,
+        js=JS,
     )
+    
+
