@@ -510,4 +510,117 @@ JS = r"""
         const source=ctx.createMediaStreamSource(S.stream);
         const processor=ctx.createScriptProcessor(4096,1,1);
         S.processor=processor; S.source=source;
-        processor.onaudioprocess=(e
+        processor.onaudioprocess=(event)=>{
+            if(!S.live) return;
+            const input=event.inputBuffer.getChannelData(0); const pcm=new Int16Array(input.length);
+            for(let i=0;i<input.length;i++){const v=Math.max(-1,Math.min(1,input[i]));pcm[i]=v<0?v*32768:v*32767;}
+            try{S.live.sendRealtimeInput({audio:{data:bytesToBase64(new Uint8Array(pcm.buffer)),mimeType:"audio/pcm;rate=16000"}});}catch(e){}
+        };
+        source.connect(processor); processor.connect(ctx.destination);
+    }
+    window.startNexoraLive = async (token) => {
+        if(!token){alert("Live token नहीं मिला।");return;}
+        try{
+            showStatus("🔴 Live Voice शुरू हो रहा है...");
+            const module=await import("https://esm.sh/@google/genai");
+            const ai=new module.GoogleGenAI({apiKey:token});
+            S.live=await ai.live.connect({
+                model:"gemini-3.8-live",
+                config:{responseModalities:["AUDIO"],systemInstruction:"तुम Nexora AI हो। सरल और स्पष्ट हिंदी में बोलो।",sessionResumption:{}},
+                callbacks:{
+                    onmessage:(message)=>{
+                        const parts=message?.serverContent?.modelTurn?.parts;
+                        if(!parts)return;
+                        for(const part of parts) if(part.inlineData?.data) playPcm24k(part.inlineData.data);
+                    },
+                    onerror:()=>showStatus("⚠️ Live Voice में समस्या हुई।"),
+                    onclose:()=>showStatus("")
+                }
+            });
+            await startLiveMicrophone();
+            showStatus("🔴 Live Voice चालू है — बोलिए...");
+        }catch(error){console.error(error);showStatus("⚠️ Live Voice शुरू नहीं हो पाया।");await stopLive();}
+    };
+    async function stopLive(){
+        try{if(S.processor)S.processor.disconnect();}catch(e){}
+        try{if(S.source)S.source.disconnect();}catch(e){}
+        try{if(S.stream)S.stream.getTracks().forEach(t=>t.stop());}catch(e){}
+        try{if(S.live)S.live.close();}catch(e){}
+        S.live=null;S.processor=null;S.source=null;S.stream=null;showStatus("");
+    }
+    window.stopNexoraLive=stopLive;
+}
+"""
+
+
+with gr.Blocks(title="Nexora AI", css=CSS, js=JS) as app:
+    with gr.Column(elem_id="app-shell"):
+        with gr.Row(elem_id="topbar"):
+            with gr.Column(scale=0, elem_classes=["top-button"]):
+                menu_btn = gr.Button("☰", elem_id="menu", show_label=False)
+            with gr.Column(elem_id="top-title"):
+                gr.Markdown("<div id='brand-box'><div id='brand-icon'>N</div><div><div id='brand-name'>Nexora AI</div><div id='brand-sub'>AI Assistant</div></div></div>")
+            with gr.Column(scale=0, elem_classes=["top-button"]):
+                search_btn = gr.Button("⌕", elem_id="search", show_label=False)
+            with gr.Column(scale=0, elem_classes=["top-button"]):
+                more_top = gr.Button("⋮", elem_id="top-more", show_label=False)
+
+        gr.HTML("""
+        <div id="side-panel">
+            <div class="side-label">Nexora AI</div>
+            <div class="side-card" onclick="document.getElementById('new-chat').click()">＋ नया चैट</div>
+            <div class="side-label">हाल की चैट</div>
+            <div class="side-card">💬 आपकी बातचीत यहाँ दिखेगी</div>
+        </div>
+        """)
+
+        with gr.Column(elem_id="chat-wrap"):
+            chat_html = gr.HTML(make_chat_html([]), elem_id="chat-html")
+
+        status = gr.Markdown("", elem_id="status")
+
+        with gr.Column(elem_id="composer"):
+            with gr.Column(elem_id="composer-inner"):
+                question = gr.Textbox(
+                    placeholder="यहाँ अपना सवाल लिखें या 🎤 बोलें...",
+                    show_label=False,
+                    lines=1,
+                    max_lines=6,
+                    elem_id="question",
+                )
+                with gr.Row(elem_id="composer-buttons"):
+                    attach_btn = gr.Button("＋", elem_classes=["composer-button"], scale=1)
+                    mic_btn = gr.Button("🎤", elem_classes=["composer-button"], scale=1)
+                    live_start = gr.Button("🔵", elem_classes=["composer-button"], scale=1)
+                    send_btn = gr.Button("➤", elem_id="send", elem_classes=["composer-button"], scale=2)
+                    live_stop = gr.Button("■", elem_classes=["composer-button"], scale=1)
+                    new_chat_btn = gr.Button("＋ नया चैट", elem_id="new-chat", elem_classes=["composer-button"], scale=2)
+
+    history_state = gr.State([])
+
+    send_btn.click(
+        fn=ask_nexora,
+        inputs=[question, history_state],
+        outputs=[chat_html, history_state, status],
+    )
+    question.submit(
+        fn=ask_nexora,
+        inputs=[question, history_state],
+        outputs=[chat_html, history_state, status],
+    )
+    new_chat_btn.click(fn=new_chat, inputs=[], outputs=[chat_html, history_state])
+    mic_btn.click(fn=None, inputs=[], outputs=[], js="() => { window.startNexoraMic(); }")
+    menu_btn.click(fn=None, inputs=[], outputs=[], js="() => { window.toggleNexoraSidebar(); }")
+
+    # Browser-only Live Voice token flow.
+    live_token = gr.State("")
+    live_start.click(fn=create_live_token, inputs=[], outputs=[live_token])
+    live_token.change(fn=None, inputs=[live_token], outputs=[], js="token => { window.startNexoraLive(token); }")
+    live_stop.click(fn=None, inputs=[], outputs=[], js="() => { window.stopNexoraLive(); }")
+
+
+if __name__ == "__main__":
+    app.launch(
+        server_name="0.0.0.0",
+        server_port=int(os.environ.get("PORT", "10000")),
+    )
