@@ -6,6 +6,8 @@ from google import genai
 
 # ============================================================
 # Nexora AI - Fast ChatGPT-style Gradio app
+# Complete version with 6 answer actions:
+# Copy / Like / Dislike / Sound / Share / More
 # ============================================================
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -64,6 +66,7 @@ def make_chat_html(history):
                 <div class="user-bubble">{safe}</div>
             </div>
             """)
+
         elif role == "assistant":
             parts.append(f"""
             <div class="message-row assistant-row">
@@ -71,14 +74,34 @@ def make_chat_html(history):
                     <div class="assistant-avatar">N</div>
                     <span>Nexora AI</span>
                 </div>
+
                 <div class="assistant-answer nexora-answer">{safe}</div>
+
                 <div class="answer-actions" aria-label="उत्तर विकल्प">
-                    <button class="answer-action" data-action="copy" title="Copy">▢</button>
-                    <button class="answer-action" data-action="like" title="Like">♡</button>
-                    <button class="answer-action" data-action="dislike" title="Dislike">♧</button>
-                    <button class="answer-action" data-action="sound" title="Sound">◖))</button>
-                    <button class="answer-action" data-action="share" title="Share">⌯</button>
-                    <button class="answer-action" data-action="more" title="More">•••</button>
+                    <button class="answer-action" data-action="copy" title="Copy" aria-label="Copy">
+                        <span class="icon-copy"></span>
+                    </button>
+                    <button class="answer-action" data-action="like" title="Like" aria-label="Like">
+                        <span class="icon-like">♡</span>
+                    </button>
+                    <button class="answer-action" data-action="dislike" title="Dislike" aria-label="Dislike">
+                        <span class="icon-dislike">♡</span>
+                    </button>
+                    <button class="answer-action" data-action="sound" title="Sound" aria-label="Sound">
+                        <span class="icon-sound">◖))</span>
+                    </button>
+                    <button class="answer-action" data-action="share" title="Share" aria-label="Share">
+                        <span class="icon-share">↗</span>
+                    </button>
+                    <button class="answer-action" data-action="more" title="More" aria-label="More">
+                        <span class="icon-more">⋮</span>
+                    </button>
+                </div>
+
+                <div class="answer-more-menu">
+                    <button data-more-action="copy">📋 Copy</button>
+                    <button data-more-action="sound">🔊 पढ़कर सुनाएँ</button>
+                    <button data-more-action="share">↗ Share</button>
                 </div>
             </div>
             """)
@@ -127,6 +150,7 @@ def ask_nexora(question, history):
             piece = getattr(chunk, "text", None) or ""
             if not piece:
                 continue
+
             answer_parts.append(piece)
             current_answer = "".join(answer_parts).strip()
             working_history = base_history + [{
@@ -136,6 +160,7 @@ def ask_nexora(question, history):
             yield make_chat_html(working_history), working_history, "", ""
 
         answer = "".join(answer_parts).strip()
+
         if not answer:
             response = client.models.generate_content(
                 model=TEXT_MODEL,
@@ -151,6 +176,7 @@ def ask_nexora(question, history):
 
     final_history = base_history + [{"role": "assistant", "content": answer}]
     yield make_chat_html(final_history), final_history, "", ""
+
 
 def new_chat():
     return make_chat_html([]), [], ""
@@ -170,7 +196,7 @@ def create_live_token():
                     "session_resumption": {},
                 },
             },
-        }
+        },
     )
     return token.name
 
@@ -270,7 +296,7 @@ footer { display: none !important; }
 .suggestion small { display:block; color:var(--muted); margin-top:6px; padding-left:29px; }
 
 .chat-list { max-width: 900px; margin:0 auto; padding:5px 0 50px; }
-.message-row { margin: 0 0 28px; }
+.message-row { margin: 0 0 28px; position:relative; }
 .user-row { display:flex; justify-content:flex-end; }
 .user-bubble {
     max-width:min(78%,700px); background:var(--user);
@@ -288,12 +314,91 @@ footer { display: none !important; }
     max-width:min(90%,760px); font-size:16px; line-height:1.65;
     padding:0 2px; overflow-wrap:anywhere;
 }
-.answer-actions { display:flex; align-items:center; gap:2px; margin:7px 0 0 0; }
-.answer-action {
-    border:0; background:transparent; color:#6b7280; cursor:pointer;
-    min-width:35px; height:34px; border-radius:9px; font-size:17px;
+
+/* Six ChatGPT-style answer options */
+.answer-actions {
+    display:flex;
+    align-items:center;
+    gap:2px;
+    margin:8px 0 0 0;
+    height:38px;
 }
-.answer-action:hover { background:var(--hover); color:var(--text); }
+
+.answer-action {
+    width:38px !important;
+    min-width:38px !important;
+    height:36px !important;
+    padding:0 !important;
+    display:flex !important;
+    align-items:center !important;
+    justify-content:center !important;
+    border:0 !important;
+    background:transparent !important;
+    color:#68707d !important;
+    cursor:pointer !important;
+    border-radius:9px !important;
+    font-size:20px !important;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:manipulation;
+}
+.answer-action:hover { background:#eeeeee !important; color:#202123 !important; }
+.answer-action:active { background:#e4e4e4 !important; transform:scale(.94); }
+.answer-action.active { background:#eeeeee !important; color:#202123 !important; }
+
+.icon-copy {
+    width:18px;
+    height:18px;
+    display:block;
+    border:2px solid currentColor;
+    border-radius:4px;
+    position:relative;
+}
+.icon-copy::after {
+    content:"";
+    position:absolute;
+    width:15px;
+    height:15px;
+    border:2px solid currentColor;
+    border-radius:4px;
+    left:4px;
+    top:-5px;
+    background:transparent;
+}
+.icon-like, .icon-dislike {
+    font-size:25px;
+    line-height:1;
+    font-family:Arial,sans-serif;
+}
+.icon-dislike { transform:rotate(180deg); }
+.icon-sound { font-size:18px; letter-spacing:-3px; white-space:nowrap; }
+.icon-share { font-size:25px; line-height:1; }
+.icon-more { font-size:28px; line-height:1; margin-top:-5px; }
+
+.answer-more-menu {
+    display:none;
+    position:absolute;
+    z-index:50;
+    left:155px;
+    top:70px;
+    min-width:180px;
+    padding:6px;
+    background:#fff;
+    border:1px solid #e5e7eb;
+    border-radius:12px;
+    box-shadow:0 8px 30px rgba(0,0,0,.12);
+}
+.answer-more-menu.open { display:flex; flex-direction:column; }
+.answer-more-menu button {
+    border:0;
+    background:transparent;
+    text-align:left;
+    padding:10px 12px;
+    border-radius:8px;
+    cursor:pointer;
+    color:#202123;
+    font-size:14px;
+}
+.answer-more-menu button:hover { background:#eeeeee; }
 
 #composer {
     position:fixed; left:0; right:0; bottom:0; z-index:90;
@@ -339,7 +444,9 @@ footer { display: none !important; }
     .home-screen h1 { font-size:27px; }
     .user-bubble { max-width:88%; font-size:15px; }
     .assistant-answer { max-width:96%; font-size:15px; }
-    .answer-action { min-width:34px; font-size:16px; }
+    .answer-actions { gap:1px; max-width:280px; }
+    .answer-action { width:36px !important; min-width:36px !important; height:36px !important; }
+    .answer-more-menu { left:92px; top:70px; }
     #brand-sub { display:none; }
 }
 """
@@ -347,7 +454,16 @@ footer { display: none !important; }
 
 JS = r"""
 () => {
-    const S = { rec:null, live:null, audioCtx:null, liveCtx:null, processor:null, stream:null, source:null, nextAudioTime:0 };
+    const S = {
+        rec: null,
+        live: null,
+        audioCtx: null,
+        liveCtx: null,
+        processor: null,
+        stream: null,
+        source: null,
+        nextAudioTime: 0
+    };
 
     const qbox = () => document.querySelector("#question textarea");
     const chatWrap = () => document.querySelector("#chat-wrap");
@@ -355,8 +471,13 @@ JS = r"""
     function setQuestion(text) {
         const box = qbox();
         if (!box) return;
-        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
-        setter.call(box, text || "");
+        const descriptor = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            "value"
+        );
+        const setter = descriptor && descriptor.set;
+        if (setter) setter.call(box, text || "");
+        else box.value = text || "";
         box.dispatchEvent(new Event("input", {bubbles:true}));
         box.dispatchEvent(new Event("change", {bubbles:true}));
         box.focus();
@@ -372,10 +493,11 @@ JS = r"""
         if (!wrap) return;
         wrap.scrollTop = wrap.scrollHeight;
         const last = wrap.querySelector(".message-row:last-child");
-        if (last) last.scrollIntoView({block:"end", behavior:"auto"});
+        if (last) {
+            last.scrollIntoView({block:"end", behavior:"auto"});
+        }
     }
 
-    // Fast auto-scroll for every streamed token/update.
     let scrollQueued = false;
     function queueScroll() {
         if (scrollQueued) return;
@@ -386,17 +508,31 @@ JS = r"""
         });
     }
 
-    const observer = new MutationObserver(queueScroll);
+    let observedChat = null;
+    const observer = new MutationObserver(() => queueScroll());
+
     function watchChat() {
         const target = chatWrap();
-        if (target) observer.observe(target, {childList:true, subtree:true, characterData:true});
+        if (!target) {
+            setTimeout(watchChat, 300);
+            return;
+        }
+        if (observedChat === target) {
+            queueScroll();
+            return;
+        }
+        observedChat = target;
+        observer.disconnect();
+        observer.observe(target, {
+            childList: true,
+            subtree: true,
+            characterData: true
+        });
         queueScroll();
     }
-    setTimeout(watchChat, 300);
-    setInterval(() => {
-        if (!document.querySelector("#chat-wrap")) return;
-        queueScroll();
-    }, 350);
+
+    watchChat();
+    setInterval(watchChat, 500);
 
     document.addEventListener("click", (event) => {
         const suggestion = event.target.closest(".suggestion");
@@ -407,111 +543,232 @@ JS = r"""
     });
 
     function getAnswer(button) {
-        const row = button.closest(".assistant-row");
+        const row = button ? button.closest(".assistant-row") : null;
         const answer = row ? row.querySelector(".nexora-answer") : null;
-        return answer ? (answer.innerText || "").replace(/▌$/,"" ).trim() : "";
+        if (!answer) return "";
+        return (answer.innerText || "").replace(/▌$/g, "").trim();
     }
 
     async function copyText(text) {
         if (!text) return;
-        try { await navigator.clipboard.writeText(text); }
-        catch(e) {
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch (e) {
             const area = document.createElement("textarea");
-            area.value = text; document.body.appendChild(area); area.select();
-            document.execCommand("copy"); area.remove();
+            area.value = text;
+            area.style.position = "fixed";
+            area.style.opacity = "0";
+            document.body.appendChild(area);
+            area.focus();
+            area.select();
+            try { document.execCommand("copy"); } catch (ignore) {}
+            area.remove();
         }
         showStatus("📋 उत्तर copy हो गया।");
         setTimeout(() => showStatus(""), 1600);
     }
 
     function speakText(text) {
-        if (!text || !window.speechSynthesis) return;
+        if (!text || !window.speechSynthesis) {
+            showStatus("⚠️ इस browser में Sound उपलब्ध नहीं है।");
+            setTimeout(() => showStatus(""), 1800);
+            return;
+        }
         window.speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = "hi-IN"; u.rate = 0.92;
-        window.speechSynthesis.speak(u);
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "hi-IN";
+        utterance.rate = 0.92;
+        utterance.pitch = 1;
+        window.speechSynthesis.speak(utterance);
+        showStatus("🔊 Nexora AI बोल रहा है...");
+        showStatus("🔊 Nexora AI बोल रहा है...");
+        utterance.onend = () => showStatus("");
     }
 
     async function shareText(text) {
         if (!text) return;
         if (navigator.share) {
-            try { await navigator.share({title:"Nexora AI", text}); return; } catch(e) {}
+            try {
+                await navigator.share({title:"Nexora AI", text:text});
+                return;
+            } catch (e) {
+                // User cancelled share or browser rejected it; keep app usable.
+                return;
+            }
         }
         await copyText(text);
     }
 
+    async function handleAnswerAction(button, action) {
+        const text = getAnswer(button);
+
+        if (action === "copy") {
+            await copyText(text);
+        } else if (action === "sound") {
+            speakText(text);
+        } else if (action === "share") {
+            await shareText(text);
+        } else if (action === "like") {
+            const row = button.closest(".assistant-row");
+            if (row) {
+                const dislike = row.querySelector('[data-action="dislike"]');
+                if (dislike) dislike.classList.remove("active");
+            }
+            button.classList.toggle("active");
+            showStatus(button.classList.contains("active") ? "👍 Feedback दर्ज हो गया।" : "");
+            setTimeout(() => showStatus(""), 1400);
+        } else if (action === "dislike") {
+            const row = button.closest(".assistant-row");
+            if (row) {
+                const like = row.querySelector('[data-action="like"]');
+                if (like) like.classList.remove("active");
+            }
+            button.classList.toggle("active");
+            showStatus(button.classList.contains("active") ? "👎 Feedback दर्ज हो गया।" : "");
+            setTimeout(() => showStatus(""), 1400);
+        } else if (action === "more") {
+            const row = button.closest(".assistant-row");
+            if (!row) return;
+
+            document.querySelectorAll(".answer-more-menu.open").forEach(menu => {
+                if (!row.contains(menu)) menu.classList.remove("open");
+            });
+
+            const menu = row.querySelector(".answer-more-menu");
+            if (menu) menu.classList.toggle("open");
+        }
+    }
+
     document.addEventListener("click", async (event) => {
         const button = event.target.closest(".answer-action");
-        if (!button) return;
-        const action = button.dataset.action;
-        const text = getAnswer(button);
-        if (action === "copy") await copyText(text);
-        else if (action === "sound") speakText(text);
-        else if (action === "share") await shareText(text);
-        else if (action === "like") showStatus("👍 Feedback दर्ज हो गया।");
-        else if (action === "dislike") showStatus("👎 Feedback दर्ज हो गया।");
-        else if (action === "more") showStatus("⋯ Copy, Like, Dislike, Sound और Share उपलब्ध हैं।");
-        if (["like","dislike","more"].includes(action)) setTimeout(() => showStatus(""), 1800);
+        if (button) {
+            event.preventDefault();
+            event.stopPropagation();
+            await handleAnswerAction(button, button.dataset.action || "");
+            return;
+        }
+
+        const moreButton = event.target.closest(".answer-more-menu button");
+        if (moreButton) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const row = moreButton.closest(".assistant-row");
+            if (!row) return;
+
+            const answerButton = row.querySelector(".answer-action");
+            const action = moreButton.dataset.moreAction || "";
+
+            if (action === "copy") await copyText(getAnswer(answerButton));
+            else if (action === "sound") speakText(getAnswer(answerButton));
+            else if (action === "share") await shareText(getAnswer(answerButton));
+
+            const menu = row.querySelector(".answer-more-menu");
+            if (menu) menu.classList.remove("open");
+            return;
+        }
+
+        document.querySelectorAll(".answer-more-menu.open")
+            .forEach(menu => menu.classList.remove("open"));
     });
 
     window.startNexoraMic = () => {
         const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!Recognition) { alert("इस browser में Speech Recognition उपलब्ध नहीं है।"); return; }
-        try { if (S.rec) S.rec.stop(); } catch(e) {}
+        if (!Recognition) {
+            alert("इस browser में Speech Recognition उपलब्ध नहीं है।");
+            return;
+        }
+
+        try { if (S.rec) S.rec.stop(); } catch (e) {}
+
         const recognition = new Recognition();
         recognition.lang = "hi-IN";
         recognition.continuous = false;
         recognition.interimResults = true;
+
         recognition.onstart = () => showStatus("🎤 सुन रहा हूँ...");
+
         recognition.onresult = (event) => {
             let text = "";
-            for (let i=0; i<event.results.length; i++) text += event.results[i][0].transcript;
+            for (let i = 0; i < event.results.length; i++) {
+                text += event.results[i][0].transcript;
+            }
             setQuestion(text);
         };
-        recognition.onerror = () => { showStatus("⚠️ आवाज़ पहचान नहीं हो पाई।"); setTimeout(()=>showStatus(""),1800); };
-        recognition.onend = () => setTimeout(()=>showStatus(""),300);
+
+        recognition.onerror = () => {
+            showStatus("⚠️ आवाज़ पहचान नहीं हो पाई।");
+            setTimeout(() => showStatus(""), 1800);
+        };
+
+        recognition.onend = () => setTimeout(() => showStatus(""), 300);
         S.rec = recognition;
-        recognition.start();
+
+        try {
+            recognition.start();
+        } catch (e) {
+            showStatus("⚠️ माइक्रोफोन शुरू नहीं हो पाया।");
+            setTimeout(() => showStatus(""), 1800);
+        }
     };
 
-    // Sidebar overlay toggle.
     window.toggleNexoraSidebar = () => {
         const panel = document.querySelector("#side-panel");
         if (panel) panel.classList.toggle("open");
     };
 
-    // Live audio helpers.
     function base64ToBytes(value) {
-        const raw = atob(value); const bytes = new Uint8Array(raw.length);
-        for (let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+        const raw = atob(value);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
         return bytes;
     }
+
     function bytesToBase64(bytes) {
-        let binary=""; const chunk=0x8000;
-        for (let i=0;i<bytes.length;i+=chunk) binary += String.fromCharCode(...bytes.subarray(i,i+chunk));
+        let binary = "";
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+        }
         return btoa(binary);
     }
+
     function playPcm24k(base64) {
         try {
-            if (!S.audioCtx) S.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (!S.audioCtx) {
+                S.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
             if (S.audioCtx.state === "suspended") S.audioCtx.resume();
-            const bytes=base64ToBytes(base64);
-            const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
-            const samples=new Float32Array(Math.floor(bytes.length/2));
-            for(let i=0;i<samples.length;i++) samples[i]=view.getInt16(i*2,true)/32768;
-            const buffer=S.audioCtx.createBuffer(1,samples.length,24000);
-            buffer.copyToChannel(samples,0);
-            const node=S.audioCtx.createBufferSource(); node.buffer=buffer; node.connect(S.audioCtx.destination);
-            const startAt=Math.max(S.audioCtx.currentTime,S.nextAudioTime); node.start(startAt);
-            S.nextAudioTime=startAt+buffer.duration;
-        } catch(e) { console.error(e); }
+
+            const bytes = base64ToBytes(base64);
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            const samples = new Float32Array(Math.floor(bytes.length / 2));
+
+            for (let i = 0; i < samples.length; i++) {
+                samples[i] = view.getInt16(i * 2, true) / 32768;
+            }
+
+            const buffer = S.audioCtx.createBuffer(1, samples.length, 24000);
+            buffer.copyToChannel(samples, 0);
+
+            const node = S.audioCtx.createBufferSource();
+            node.buffer = buffer;
+            node.connect(S.audioCtx.destination);
+
+            const startAt = Math.max(S.audioCtx.currentTime, S.nextAudioTime);
+            node.start(startAt);
+            S.nextAudioTime = startAt + buffer.duration;
+        } catch (e) {
+            console.error(e);
+        }
     }
+
     async function startLiveMicrophone() {
         S.stream = await navigator.mediaDevices.getUserMedia({audio:true});
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         S.liveCtx = ctx;
 
-    const source = ctx.createMediaStreamSource(S.stream);
+        const source = ctx.createMediaStreamSource(S.stream);
         const processor = ctx.createScriptProcessor(4096, 1, 1);
         const silentGain = ctx.createGain();
         silentGain.gain.value = 0;
@@ -547,12 +804,10 @@ JS = r"""
                         mimeType: "audio/pcm;rate=16000"
                     }
                 });
-            } catch(e) {}
+            } catch (e) {}
         };
 
         source.connect(processor);
-
-        // Keep the processor alive without playing the microphone back to the user.
         processor.connect(silentGain);
         silentGain.connect(ctx.destination);
 
@@ -560,39 +815,63 @@ JS = r"""
     }
 
     window.startNexoraLive = async (token) => {
-        if(!token){alert("Live token नहीं मिला।");return;}
-        try{
+        if (!token) {
+            alert("Live token नहीं मिला।");
+            return;
+        }
+
+        try {
             showStatus("🔴 Live Voice शुरू हो रहा है...");
-            const module=await import("https://esm.sh/@google/genai");
-            const ai=new module.GoogleGenAI({apiKey:token});
-            S.live=await ai.live.connect({
-                model:"gemini-3.8-live",
-                config:{responseModalities:["AUDIO"],systemInstruction:"तुम Nexora AI हो। सरल और स्पष्ट हिंदी में बोलो।",sessionResumption:{}},
-                callbacks:{
-                    onmessage:(message)=>{
-                        const parts=message?.serverContent?.modelTurn?.parts;
-                        if(!parts)return;
-                        for(const part of parts) if(part.inlineData?.data) playPcm24k(part.inlineData.data);
+
+            const module = await import("https://esm.sh/@google/genai");
+            const ai = new module.GoogleGenAI({apiKey:token});
+
+            S.live = await ai.live.connect({
+                model: "gemini-3.8-live",
+                config: {
+                    responseModalities: ["AUDIO"],
+                    systemInstruction: "तुम Nexora AI हो। सरल और स्पष्ट हिंदी में बोलो।",
+                    sessionResumption: {}
+                },
+                callbacks: {
+                    onmessage: (message) => {
+                        const parts = message?.serverContent?.modelTurn?.parts;
+                        if (!parts) return;
+                        for (const part of parts) {
+                            if (part.inlineData?.data) playPcm24k(part.inlineData.data);
+                        }
                     },
-                    onerror:()=>showStatus("⚠️ Live Voice में समस्या हुई।"),
-                    onclose:()=>showStatus("")
+                    onerror: () => showStatus("⚠️ Live Voice में समस्या हुई।"),
+                    onclose: () => showStatus("")
                 }
             });
+
             await startLiveMicrophone();
             showStatus("🔴 Live Voice चालू है — बोलिए...");
-        }catch(error){console.error(error);showStatus("⚠️ Live Voice शुरू नहीं हो पाया।");await stopLive();}
+        } catch (error) {
+            console.error(error);
+            showStatus("⚠️ Live Voice शुरू नहीं हो पाया।");
+            await stopLive();
+        }
     };
-    async function stopLive(){
-        try{if(S.processor)S.processor.disconnect();}catch(e){}
-        try{if(S.source)S.source.disconnect();}catch(e){}
-        try{if(S.stream)S.stream.getTracks().forEach(t=>t.stop());}catch(e){}
-        try{if(S.live)S.live.close();}catch(e){}
-        try{if(S.liveCtx)await S.liveCtx.close();}catch(e){}
-        S.live=null;S.processor=null;S.source=null;S.stream=null;S.liveCtx=null;
-        S.nextAudioTime=0;
+
+    async function stopLive() {
+        try { if (S.processor) S.processor.disconnect(); } catch (e) {}
+        try { if (S.source) S.source.disconnect(); } catch (e) {}
+        try { if (S.stream) S.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        try { if (S.live) S.live.close(); } catch (e) {}
+        try { if (S.liveCtx) await S.liveCtx.close(); } catch (e) {}
+
+        S.live = null;
+        S.processor = null;
+        S.source = null;
+        S.stream = null;
+        S.liveCtx = null;
+        S.nextAudioTime = 0;
         showStatus("");
     }
-    window.stopNexoraLive=stopLive;
+
+    window.stopNexoraLive = stopLive;
 }
 """
 
@@ -603,7 +882,9 @@ with gr.Blocks(title="Nexora AI") as app:
             with gr.Column(scale=0, elem_classes=["top-button"]):
                 menu_btn = gr.Button("☰", elem_id="menu")
             with gr.Column(elem_id="top-title"):
-                gr.Markdown("<div id='brand-box'><div id='brand-icon'>N</div><div><div id='brand-name'>Nexora AI</div><div id='brand-sub'>AI Assistant</div></div></div>")
+                gr.Markdown(
+                    "<div id='brand-box'><div id='brand-icon'>N</div><div><div id='brand-name'>Nexora AI</div><div id='brand-sub'>AI Assistant</div></div></div>"
+                )
             with gr.Column(scale=0, elem_classes=["top-button"]):
                 search_btn = gr.Button("⌕", elem_id="search")
             with gr.Column(scale=0, elem_classes=["top-button"]):
@@ -632,6 +913,7 @@ with gr.Blocks(title="Nexora AI") as app:
                     max_lines=6,
                     elem_id="question",
                 )
+
                 with gr.Row(elem_id="composer-buttons"):
                     attach_btn = gr.Button("＋", elem_classes=["composer-button"], scale=1)
                     mic_btn = gr.Button("🎤", elem_classes=["composer-button"], scale=1)
@@ -647,32 +929,91 @@ with gr.Blocks(title="Nexora AI") as app:
         inputs=[question, history_state],
         outputs=[chat_html, history_state, status, question],
     )
+
     question.submit(
         fn=ask_nexora,
         inputs=[question, history_state],
         outputs=[chat_html, history_state, status, question],
     )
-    new_chat_btn.click(fn=new_chat, inputs=[], outputs=[chat_html, history_state, question])
-    mic_btn.click(fn=None, inputs=[], outputs=[], js="() => { window.startNexoraMic(); }")
-    menu_btn.click(fn=None, inputs=[], outputs=[], js="() => { window.toggleNexoraSidebar(); }")
-    search_btn.click(
-        fn=None, inputs=[], outputs=[],
-        js="() => { const el=document.querySelector('#question textarea'); if(el){el.focus(); el.scrollIntoView({block:'center'});} }"
-    )
-    more_top.click(
-        fn=None, inputs=[], outputs=[],
-        js="() => { alert('Nexora AI: नया चैट, टेक्स्ट चैट, माइक्रोफोन और Live Voice उपलब्ध हैं।'); }"
-    )
-    attach_btn.click(
-        fn=None, inputs=[], outputs=[],
-        js="() => { alert('फ़ाइल अटैचमेंट अभी इस संस्करण में सक्रिय नहीं है।'); }"
+
+    new_chat_btn.click(
+        fn=new_chat,
+        inputs=[],
+        outputs=[chat_html, history_state, question],
     )
 
-    # Browser-only Live Voice token flow.
+    mic_btn.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="() => { window.startNexoraMic(); }",
+    )
+
+    menu_btn.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="() => { window.toggleNexoraSidebar(); }",
+    )
+
+    search_btn.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="""
+        () => {
+            const el = document.querySelector('#question textarea');
+            if (el) {
+                el.focus();
+                el.scrollIntoView({block:'center'});
+            }
+        }
+        """,
+    )
+
+    more_top.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="""
+        () => {
+            alert('Nexora AI: नया चैट, टेक्स्ट चैट, माइक्रोफोन और Live Voice उपलब्ध हैं।');
+        }
+        """,
+    )
+
+    attach_btn.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="""
+        () => {
+            alert('फ़ाइल अटैचमेंट अभी इस संस्करण में सक्रिय नहीं है।');
+        }
+        """,
+    )
+
     live_token = gr.State("")
-    live_start.click(fn=create_live_token, inputs=[], outputs=[live_token])
-    live_token.change(fn=None, inputs=[live_token], outputs=[], js="token => { window.startNexoraLive(token); }")
-    live_stop.click(fn=None, inputs=[], outputs=[], js="() => { window.stopNexoraLive(); }")
+
+    live_start.click(
+        fn=create_live_token,
+        inputs=[],
+        outputs=[live_token],
+    )
+
+    live_token.change(
+        fn=None,
+        inputs=[live_token],
+        outputs=[],
+        js="token => { window.startNexoraLive(token); }",
+    )
+
+    live_stop.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        js="() => { window.stopNexoraLive(); }",
+    )
 
 
 if __name__ == "__main__":
@@ -681,5 +1022,5 @@ if __name__ == "__main__":
         server_port=int(os.environ.get("PORT", "7860")),
         css=CSS,
         js=JS,
-)
-                                     
+                )
+                                           
