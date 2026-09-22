@@ -1,1025 +1,160 @@
 import os
-import datetime
-import html
-import gradio as gr
-from google import genai
+import sqlite3
+from flask import Flask, request, jsonify, render_template_string
 
-# ============================================================
-# Nexora AI - Fast ChatGPT-style Gradio app
-# Complete version with 6 answer actions:
-# Copy / Like / Dislike / Sound / Share / More
-# ============================================================
+app = Flask(__name__)
 
-API_KEY = os.environ.get("GEMINI_API_KEY")
-if not API_KEY:
-    raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
+# ----------------- 1. DATABASE SETUP (डेटाबेस सेटअप) -----------------
+# यह कोड आपके कंप्यूटर पर अपने आप एक डेटाबेस फ़ाइल बनाएगा ताकि पुरानी चैट सेव रहे
+DB_FILE = "nexora_chat.db"
 
-TEXT_MODEL = "gemini-3.5-flash-lite"
-LIVE_MODEL = "gemini-3.8-live"
-
-client = genai.Client(api_key=API_KEY)
-
-SYSTEM_PROMPT = """
-तुम Nexora AI हो।
-हमेशा सरल, स्पष्ट और स्वाभाविक हिंदी में उत्तर दो।
-हिंदी सवाल का उत्तर देवनागरी हिंदी में दो।
-Roman Hindi या Hinglish में उत्तर मत दो, जब तक उपयोगकर्ता विशेष रूप से ऐसा न कहे।
-तथात्मक प्रश्नों का सही और स्पष्ट उत्तर दो।
-उत्तर सीधे सवाल पर दो और अनावश्यक लंबी भूमिका से बचो।
-""".strip()
-
-
-def make_chat_html(history):
-    if not history:
-        return """
-        <div class="home-screen">
-            <div class="home-logo">N</div>
-            <h1>Nexora AI</h1>
-            <p>मुझसे कुछ भी पूछिए</p>
-            <div class="suggestions">
-                <button class="suggestion" data-prompt="भारत की राजधानी क्या है?">
-                    <span>💡</span><b>जानकारी पूछें</b><small>किसी भी विषय पर सवाल पूछें</small>
-                </button>
-                <button class="suggestion" data-prompt="एक आसान और मज़ेदार कहानी सुनाइए।">
-                    <span>✍️</span><b>लिखने में मदद</b><small>कहानी, संदेश या लेख लिखें</small>
-                </button>
-                <button class="suggestion" data-prompt="मुझे Python सीखने की शुरुआत समझाइए।">
-                    <span>💻</span><b>सीखने में मदद</b><small>कोड और पढ़ाई में सहायता</small>
-                </button>
-                <button class="suggestion" data-prompt="आज के लिए एक उपयोगी productivity plan बनाइए।">
-                    <span>🧠</span><b>योजना बनाएं</b><small>काम को आसान तरीके से व्यवस्थित करें</small>
-                </button>
-            </div>
-        </div>
-        """
-
-    parts = ['<div class="chat-list">']
-
-    for item in history:
-        role = item.get("role", "") if isinstance(item, dict) else ""
-        content = item.get("content", "") if isinstance(item, dict) else ""
-        safe = html.escape(str(content)).replace("\n", "<br>")
-
-        if role == "user":
-            parts.append(f"""
-            <div class="message-row user-row">
-                <div class="user-bubble">{safe}</div>
-            </div>
-            """)
-
-        elif role == "assistant":
-            parts.append(f"""
-            <div class="message-row assistant-row">
-                <div class="assistant-head">
-                    <div class="assistant-avatar">N</div>
-                    <span>Nexora AI</span>
-                </div>
-
-                <div class="assistant-answer nexora-answer">{safe}</div>
-
-                <div class="answer-actions" aria-label="उत्तर विकल्प">
-                    <button class="answer-action" data-action="copy" title="Copy" aria-label="Copy">
-                        <span class="icon-copy"></span>
-                    </button>
-                    <button class="answer-action" data-action="like" title="Like" aria-label="Like">
-                        <span class="icon-like">♡</span>
-                    </button>
-                    <button class="answer-action" data-action="dislike" title="Dislike" aria-label="Dislike">
-                        <span class="icon-dislike">♡</span>
-                    </button>
-                    <button class="answer-action" data-action="sound" title="Sound" aria-label="Sound">
-                        <span class="icon-sound">◖))</span>
-                    </button>
-                    <button class="answer-action" data-action="share" title="Share" aria-label="Share">
-                        <span class="icon-share">↗</span>
-                    </button>
-                    <button class="answer-action" data-action="more" title="More" aria-label="More">
-                        <span class="icon-more">⋮</span>
-                    </button>
-                </div>
-
-                <div class="answer-more-menu">
-                    <button data-more-action="copy">📋 Copy</button>
-                    <button data-more-action="sound">🔊 पढ़कर सुनाएँ</button>
-                    <button data-more-action="share">↗ Share</button>
-                </div>
-            </div>
-            """)
-
-    parts.append("</div>")
-    return "".join(parts)
-
-
-def build_prompt(question, history):
-    context = []
-    for item in (history or [])[-6:]:
-        if isinstance(item, dict) and item.get("content"):
-            role = item.get("role", "")
-            content = item.get("content", "")
-            context.append(f"{role}: {content}")
-
-    prompt = SYSTEM_PROMPT
-    if context:
-        prompt += "\n\nपिछली बातचीत:\n" + "\n".join(context)
-    prompt += f"\n\nनया सवाल:\n{question}"
-    return prompt
-
-
-def ask_nexora(question, history):
-    question = (question or "").strip()
-    history = list(history or [])
-
-    if not question:
-        yield make_chat_html(history), history, "", ""
-        return
-
-    base_history = history + [{"role": "user", "content": question}]
-    working_history = base_history + [{"role": "assistant", "content": "▌"}]
-    yield make_chat_html(working_history), working_history, "⏳ Nexora AI लिख रहा है...", ""
-
-    prompt = build_prompt(question, history)
-    answer_parts = []
-
-    try:
-        stream = client.models.generate_content_stream(
-            model=TEXT_MODEL,
-            contents=prompt,
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    # चैट मैसेजेस को सेव करने के लिए टेबल
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT NOT NULL,
+            text TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
-
-        for chunk in stream:
-            piece = getattr(chunk, "text", None) or ""
-            if not piece:
-                continue
-
-            answer_parts.append(piece)
-            current_answer = "".join(answer_parts).strip()
-            working_history = base_history + [{
-                "role": "assistant",
-                "content": current_answer + "▌"
-            }]
-            yield make_chat_html(working_history), working_history, "", ""
-
-        answer = "".join(answer_parts).strip()
-
-        if not answer:
-            response = client.models.generate_content(
-                model=TEXT_MODEL,
-                contents=prompt,
-            )
-            answer = (
-                getattr(response, "text", None)
-                or "मुझे अभी उत्तर नहीं मिला।"
-            ).strip()
-
-    except Exception as exc:
-        answer = f"⚠️ उत्तर देने में समस्या हुई:\n{exc}"
-
-    final_history = base_history + [{"role": "assistant", "content": answer}]
-    yield make_chat_html(final_history), final_history, "", ""
-
-
-def new_chat():
-    return make_chat_html([]), [], ""
-
-
-def create_live_token():
-    now = datetime.datetime.now(datetime.timezone.utc)
-    token = client.auth_tokens.create(
-        config={
-            "uses": 1,
-            "expire_time": now + datetime.timedelta(minutes=30),
-            "new_session_expire_time": now + datetime.timedelta(minutes=1),
-            "live_connect_constraints": {
-                "model": LIVE_MODEL,
-                "config": {
-                    "response_modalities": ["AUDIO"],
-                    "session_resumption": {},
-                },
-            },
-        },
-    )
-    return token.name
-
-
-CSS = r"""
-:root {
-    --bg: #ffffff;
-    --panel: #f7f7f8;
-    --text: #202123;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --hover: #eeeeee;
-    --user: #e8f1ff;
-    --composer: #ffffff;
-}
-
-* { box-sizing: border-box; }
-html, body { margin: 0 !important; padding: 0 !important; height: 100%; }
-body { background: var(--bg) !important; color: var(--text) !important; }
-.gradio-container { max-width: none !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
-footer { display: none !important; }
-
-#app-shell { min-height: 100vh; background: var(--bg); }
-#topbar {
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    height: 58px;
-    z-index: 100;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 7px 12px;
-    background: rgba(255,255,255,.96);
-    border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(10px);
-}
-#brand-box { display:flex; align-items:center; gap:9px; }
-#brand-icon {
-    width: 34px; height:34px; border-radius: 11px;
-    display:flex; align-items:center; justify-content:center;
-    color:#fff; font-weight:800;
-    background: linear-gradient(135deg,#06b6d4,#6366f1,#a855f7);
-}
-#brand-name { font-weight:700; font-size:17px; }
-#brand-sub { color:var(--muted); font-size:11px; margin-top:1px; }
-
-.top-button button {
-    min-width: 40px !important; height: 40px !important;
-    border-radius: 10px !important;
-    border: 0 !important;
-    background: transparent !important;
-    color: var(--text) !important;
-    font-size: 20px !important;
-    padding: 0 9px !important;
-}
-.top-button button:hover { background: var(--hover) !important; }
-#top-title { flex: 1; margin: 0 12px; }
-#top-title button { font-weight:600 !important; font-size:15px !important; }
-
-#chat-wrap {
-    position: fixed;
-    top: 58px;
-    left: 0; right: 0; bottom: 125px;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    padding: 18px 12px 35px !important;
-    scroll-behavior: auto !important;
-    -webkit-overflow-scrolling: touch;
-}
-#chat-html { max-width: 900px !important; margin: 0 auto !important; }
-
-.home-screen {
-    min-height: calc(100vh - 220px);
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    padding: 30px 12px 80px; text-align:center;
-}
-.home-logo {
-    width: 64px; height:64px; border-radius:20px;
-    display:flex; align-items:center; justify-content:center;
-    color:#fff; font-size:30px; font-weight:800;
-    background:linear-gradient(135deg,#06b6d4,#6366f1,#a855f7);
-    box-shadow:0 12px 35px rgba(99,102,241,.20);
-}
-.home-screen h1 { font-size:30px; margin:18px 0 4px; }
-.home-screen p { margin:0; color:var(--muted); font-size:15px; }
-.suggestions {
-    width:min(760px,100%); margin-top:32px;
-    display:grid; grid-template-columns:repeat(2,1fr); gap:10px;
-}
-.suggestion {
-    text-align:left; padding:14px; border:1px solid var(--border);
-    background:var(--bg); color:var(--text); border-radius:14px; cursor:pointer;
-}
-.suggestion:hover { background:var(--hover); }
-.suggestion span { font-size:20px; margin-right:8px; }
-.suggestion b { font-size:14px; }
-.suggestion small { display:block; color:var(--muted); margin-top:6px; padding-left:29px; }
-
-.chat-list { max-width: 900px; margin:0 auto; padding:5px 0 50px; }
-.message-row { margin: 0 0 28px; position:relative; }
-.user-row { display:flex; justify-content:flex-end; }
-.user-bubble {
-    max-width:min(78%,700px); background:var(--user);
-    border-radius:20px 20px 5px 20px; padding:11px 15px;
-    line-height:1.55; font-size:16px; overflow-wrap:anywhere;
-}
-.assistant-row { display:flex; flex-direction:column; align-items:flex-start; }
-.assistant-head { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin:0 0 7px 2px; }
-.assistant-avatar {
-    width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center;
-    color:#fff; font-size:12px; font-weight:800;
-    background:linear-gradient(135deg,#06b6d4,#6366f1,#a855f7);
-}
-.assistant-answer {
-    max-width:min(90%,760px); font-size:16px; line-height:1.65;
-    padding:0 2px; overflow-wrap:anywhere;
-}
-
-/* Six ChatGPT-style answer options */
-.answer-actions {
-    display:flex;
-    align-items:center;
-    gap:2px;
-    margin:8px 0 0 0;
-    height:38px;
-}
-
-.answer-action {
-    width:38px !important;
-    min-width:38px !important;
-    height:36px !important;
-    padding:0 !important;
-    display:flex !important;
-    align-items:center !important;
-    justify-content:center !important;
-    border:0 !important;
-    background:transparent !important;
-    color:#68707d !important;
-    cursor:pointer !important;
-    border-radius:9px !important;
-    font-size:20px !important;
-    -webkit-tap-highlight-color:transparent;
-    touch-action:manipulation;
-}
-.answer-action:hover { background:#eeeeee !important; color:#202123 !important; }
-.answer-action:active { background:#e4e4e4 !important; transform:scale(.94); }
-.answer-action.active { background:#eeeeee !important; color:#202123 !important; }
-
-.icon-copy {
-    width:18px;
-    height:18px;
-    display:block;
-    border:2px solid currentColor;
-    border-radius:4px;
-    position:relative;
-}
-.icon-copy::after {
-    content:"";
-    position:absolute;
-    width:15px;
-    height:15px;
-    border:2px solid currentColor;
-    border-radius:4px;
-    left:4px;
-    top:-5px;
-    background:transparent;
-}
-.icon-like, .icon-dislike {
-    font-size:25px;
-    line-height:1;
-    font-family:Arial,sans-serif;
-}
-.icon-dislike { transform:rotate(180deg); }
-.icon-sound { font-size:18px; letter-spacing:-3px; white-space:nowrap; }
-.icon-share { font-size:25px; line-height:1; }
-.icon-more { font-size:28px; line-height:1; margin-top:-5px; }
-
-.answer-more-menu {
-    display:none;
-    position:absolute;
-    z-index:50;
-    left:155px;
-    top:70px;
-    min-width:180px;
-    padding:6px;
-    background:#fff;
-    border:1px solid #e5e7eb;
-    border-radius:12px;
-    box-shadow:0 8px 30px rgba(0,0,0,.12);
-}
-.answer-more-menu.open { display:flex; flex-direction:column; }
-.answer-more-menu button {
-    border:0;
-    background:transparent;
-    text-align:left;
-    padding:10px 12px;
-    border-radius:8px;
-    cursor:pointer;
-    color:#202123;
-    font-size:14px;
-}
-.answer-more-menu button:hover { background:#eeeeee; }
-
-#composer {
-    position:fixed; left:0; right:0; bottom:0; z-index:90;
-    background:rgba(255,255,255,.97); border-top:1px solid var(--border);
-    padding:7px 10px 9px; backdrop-filter:blur(10px);
-}
-#composer-inner { max-width:900px !important; margin:0 auto !important; }
-#question textarea {
-    min-height:50px !important; max-height:150px !important; resize:none !important;
-    border-radius:18px !important; border:1px solid var(--border) !important;
-    background:var(--composer) !important; color:var(--text) !important;
-    box-shadow:0 1px 4px rgba(0,0,0,.05) !important;
-    font-size:16px !important; padding:14px 48px 12px 15px !important;
-}
-#composer-buttons { margin-top:5px !important; }
-.composer-button button {
-    min-height:39px !important; border-radius:12px !important;
-    border:1px solid var(--border) !important; background:var(--bg) !important;
-    color:var(--text) !important; font-size:15px !important;
-}
-#send button { background:#111827 !important; color:#fff !important; border-color:#111827 !important; }
-#send button:hover { opacity:.9; }
-#new-chat button { background:var(--bg) !important; }
-#status { text-align:center !important; min-height:0 !important; margin:0 !important; font-size:12px !important; color:var(--muted) !important; }
-
-#side-panel {
-    position:fixed; z-index:120; top:58px; bottom:0; left:-290px; width:280px;
-    background:var(--panel); border-right:1px solid var(--border);
-    transition:left .2s ease; padding:12px;
-}
-#side-panel.open { left:0; }
-.side-label { color:var(--muted); font-size:12px; margin:10px 6px; }
-.side-card { padding:10px 12px; border-radius:10px; cursor:pointer; }
-.side-card:hover { background:var(--hover); }
-
-@media (max-width:600px) {
-    #topbar { height:54px; padding:6px 8px; }
-    #chat-wrap { top:54px; bottom:143px; padding:12px 8px 25px !important; }
-    #composer { padding:5px 7px 7px; }
-    #question textarea { min-height:48px !important; font-size:16px !important; border-radius:17px !important; }
-    .suggestions { grid-template-columns:1fr; margin-top:25px; }
-    .home-screen { padding-bottom:100px; }
-    .home-screen h1 { font-size:27px; }
-    .user-bubble { max-width:88%; font-size:15px; }
-    .assistant-answer { max-width:96%; font-size:15px; }
-    .answer-actions { gap:1px; max-width:280px; }
-    .answer-action { width:36px !important; min-width:36px !important; height:36px !important; }
-    .answer-more-menu { left:92px; top:70px; }
-    #brand-sub { display:none; }
-}
-"""
-
-
-JS = r"""
-() => {
-    const S = {
-        rec: null,
-        live: null,
-        audioCtx: null,
-        liveCtx: null,
-        processor: null,
-        stream: null,
-        source: null,
-        nextAudioTime: 0
-    };
-
-    const qbox = () => document.querySelector("#question textarea");
-    const chatWrap = () => document.querySelector("#chat-wrap");
-
-    function setQuestion(text) {
-        const box = qbox();
-        if (!box) return;
-        const descriptor = Object.getOwnPropertyDescriptor(
-            HTMLTextAreaElement.prototype,
-            "value"
-        );
-        const setter = descriptor && descriptor.set;
-        if (setter) setter.call(box, text || "");
-        else box.value = text || "";
-        box.dispatchEvent(new Event("input", {bubbles:true}));
-        box.dispatchEvent(new Event("change", {bubbles:true}));
-        box.focus();
-    }
-
-    function showStatus(text) {
-        const el = document.querySelector("#status");
-        if (el) el.innerText = text || "";
-    }
-
-    function fastScroll() {
-        const wrap = chatWrap();
-        if (!wrap) return;
-        wrap.scrollTop = wrap.scrollHeight;
-        const last = wrap.querySelector(".message-row:last-child");
-        if (last) {
-            last.scrollIntoView({block:"end", behavior:"auto"});
-        }
-    }
-
-    let scrollQueued = false;
-    function queueScroll() {
-        if (scrollQueued) return;
-        scrollQueued = true;
-        requestAnimationFrame(() => {
-            scrollQueued = false;
-            fastScroll();
-        });
-    }
-
-    let observedChat = null;
-    const observer = new MutationObserver(() => queueScroll());
-
-    function watchChat() {
-        const target = chatWrap();
-        if (!target) {
-            setTimeout(watchChat, 300);
-            return;
-        }
-        if (observedChat === target) {
-            queueScroll();
-            return;
-        }
-        observedChat = target;
-        observer.disconnect();
-        observer.observe(target, {
-            childList: true,
-            subtree: true,
-            characterData: true
-        });
-        queueScroll();
-    }
-
-    watchChat();
-    setInterval(watchChat, 500);
-
-    document.addEventListener("click", (event) => {
-        const suggestion = event.target.closest(".suggestion");
-        if (suggestion) {
-            setQuestion(suggestion.dataset.prompt || "");
-            return;
-        }
-    });
-
-    function getAnswer(button) {
-        const row = button ? button.closest(".assistant-row") : null;
-        const answer = row ? row.querySelector(".nexora-answer") : null;
-        if (!answer) return "";
-        return (answer.innerText || "").replace(/▌$/g, "").trim();
-    }
-
-    async function copyText(text) {
-        if (!text) return;
-        try {
-            await navigator.clipboard.writeText(text);
-        } catch (e) {
-            const area = document.createElement("textarea");
-            area.value = text;
-            area.style.position = "fixed";
-            area.style.opacity = "0";
-            document.body.appendChild(area);
-            area.focus();
-            area.select();
-            try { document.execCommand("copy"); } catch (ignore) {}
-            area.remove();
-        }
-        showStatus("📋 उत्तर copy हो गया।");
-        setTimeout(() => showStatus(""), 1600);
-    }
-
-    function speakText(text) {
-        if (!text || !window.speechSynthesis) {
-            showStatus("⚠️ इस browser में Sound उपलब्ध नहीं है।");
-            setTimeout(() => showStatus(""), 1800);
-            return;
-        }
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "hi-IN";
-        utterance.rate = 0.92;
-        utterance.pitch = 1;
-        window.speechSynthesis.speak(utterance);
-        showStatus("🔊 Nexora AI बोल रहा है...");
-        utterance.onend = () => showStatus("");
-    }
-
-    async function shareText(text) {
-        if (!text) return;
-        if (navigator.share) {
-            try {
-                await navigator.share({title:"Nexora AI", text:text});
-                return;
-            } catch (e) {
-                // User cancelled share or browser rejected it; keep app usable.
-                return;
-            }
-        }
-        await copyText(text);
-    }
-
-    async function handleAnswerAction(button, action) {
-        const text = getAnswer(button);
-
-        if (action === "copy") {
-            await copyText(text);
-        } else if (action === "sound") {
-            speakText(text);
-        } else if (action === "share") {
-            await shareText(text);
-        } else if (action === "like") {
-            const row = button.closest(".assistant-row");
-            if (row) {
-                const dislike = row.querySelector('[data-action="dislike"]');
-                if (dislike) dislike.classList.remove("active");
-            }
-            button.classList.toggle("active");
-            showStatus(button.classList.contains("active") ? "👍 Feedback दर्ज हो गया।" : "");
-            setTimeout(() => showStatus(""), 1400);
-        } else if (action === "dislike") {
-            const row = button.closest(".assistant-row");
-            if (row) {
-                const like = row.querySelector('[data-action="like"]');
-                if (like) like.classList.remove("active");
-            }
-            button.classList.toggle("active");
-            showStatus(button.classList.contains("active") ? "👎 Feedback दर्ज हो गया।" : "");
-            setTimeout(() => showStatus(""), 1400);
-        } else if (action === "more") {
-            const row = button.closest(".assistant-row");
-            if (!row) return;
-
-            document.querySelectorAll(".answer-more-menu.open").forEach(menu => {
-                if (!row.contains(menu)) menu.classList.remove("open");
-            });
-
-            const menu = row.querySelector(".answer-more-menu");
-            if (menu) menu.classList.toggle("open");
-        }
-    }
-
-    document.addEventListener("click", async (event) => {
-        const button = event.target.closest(".answer-action");
-        if (button) {
-            event.preventDefault();
-            event.stopPropagation();
-            await handleAnswerAction(button, button.dataset.action || "");
-            return;
-        }
-
-        const moreButton = event.target.closest(".answer-more-menu button");
-        if (moreButton) {
-            event.preventDefault();
-            event.stopPropagation();
-
-            const row = moreButton.closest(".assistant-row");
-            if (!row) return;
-
-            const answerButton = row.querySelector(".answer-action");
-            const action = moreButton.dataset.moreAction || "";
-
-            if (action === "copy") await copyText(getAnswer(answerButton));
-            else if (action === "sound") speakText(getAnswer(answerButton));
-            else if (action === "share") await shareText(getAnswer(answerButton));
-
-            const menu = row.querySelector(".answer-more-menu");
-            if (menu) menu.classList.remove("open");
-            return;
-        }
-
-        document.querySelectorAll(".answer-more-menu.open")
-            .forEach(menu => menu.classList.remove("open"));
-    });
-
-    window.startNexoraMic = () => {
-        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        if (!Recognition) {
-            alert("इस browser में Speech Recognition उपलब्ध नहीं है।");
-            return;
-        }
-
-        try { if (S.rec) S.rec.stop(); } catch (e) {}
-
-        const recognition = new Recognition();
-        recognition.lang = "hi-IN";
-        recognition.continuous = false;
-        recognition.interimResults = true;
-
-        recognition.onstart = () => showStatus("🎤 सुन रहा हूँ...");
-
-        recognition.onresult = (event) => {
-            let text = "";
-            for (let i = 0; i < event.results.length; i++) {
-                text += event.results[i][0].transcript;
-            }
-            setQuestion(text);
-        };
-
-        recognition.onerror = () => {
-            showStatus("⚠️ आवाज़ पहचान नहीं हो पाई।");
-            setTimeout(() => showStatus(""), 1800);
-        };
-
-        recognition.onend = () => setTimeout(() => showStatus(""), 300);
-        S.rec = recognition;
-
-        try {
-            recognition.start();
-        } catch (e) {
-            showStatus("⚠️ माइक्रोफोन शुरू नहीं हो पाया।");
-            setTimeout(() => showStatus(""), 1800);
-        }
-    };
-
-    window.toggleNexoraSidebar = () => {
-        const panel = document.querySelector("#side-panel");
-        if (panel) panel.classList.toggle("open");
-    };
-
-    function base64ToBytes(value) {
-        const raw = atob(value);
-        const bytes = new Uint8Array(raw.length);
-        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-        return bytes;
-    }
-
-    function bytesToBase64(bytes) {
-        let binary = "";
-        const chunk = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-        }
-        return btoa(binary);
-    }
-
-    function playPcm24k(base64) {
-        try {
-            if (!S.audioCtx) {
-                S.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            if (S.audioCtx.state === "suspended") S.audioCtx.resume();
-
-            const bytes = base64ToBytes(base64);
-            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-            const samples = new Float32Array(Math.floor(bytes.length / 2));
-
-            for (let i = 0; i < samples.length; i++) {
-                samples[i] = view.getInt16(i * 2, true) / 32768;
-            }
-
-            const buffer = S.audioCtx.createBuffer(1, samples.length, 24000);
-            buffer.copyToChannel(samples, 0);
-
-            const node = S.audioCtx.createBufferSource();
-            node.buffer = buffer;
-            node.connect(S.audioCtx.destination);
-
-            const startAt = Math.max(S.audioCtx.currentTime, S.nextAudioTime);
-            node.start(startAt);
-            S.nextAudioTime = startAt + buffer.duration;
-        } catch (e) {
-            console.error(e);
-        }
-    }
-
-    async function startLiveMicrophone() {
-        S.stream = await navigator.mediaDevices.getUserMedia({audio:true});
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        S.liveCtx = ctx;
-
-        const source = ctx.createMediaStreamSource(S.stream);
-        const processor = ctx.createScriptProcessor(4096, 1, 1);
-        const silentGain = ctx.createGain();
-        silentGain.gain.value = 0;
-
-        S.processor = processor;
-        S.source = source;
-
-        processor.onaudioprocess = (event) => {
-            if (!S.live) return;
-
-            const input = event.inputBuffer.getChannelData(0);
-            const inRate = event.inputBuffer.sampleRate;
-            const outRate = 16000;
-            const outLength = Math.max(1, Math.round(input.length * outRate / inRate));
-            const pcm = new Int16Array(outLength);
-
-            for (let i = 0; i < outLength; i++) {
-                const srcPos = i * (inRate / outRate);
-                const left = Math.min(Math.floor(srcPos), input.length - 1);
-                const right = Math.min(left + 1, input.length - 1);
-                const frac = srcPos - left;
-                const sample =
-                    (input[left] || 0) * (1 - frac) +
-                    (input[right] || 0) * frac;
-                const v = Math.max(-1, Math.min(1, sample));
-                pcm[i] = v < 0 ? v * 32768 : v * 32767;
-            }
-
-            try {
-                S.live.sendRealtimeInput({
-                    audio: {
-                        data: bytesToBase64(new Uint8Array(pcm.buffer)),
-                        mimeType: "audio/pcm;rate=16000"
-                    }
-                });
-            } catch (e) {}
-        };
-
-        source.connect(processor);
-        processor.connect(silentGain);
-        silentGain.connect(ctx.destination);
-
-        if (ctx.state === "suspended") await ctx.resume();
-    }
-
-    window.startNexoraLive = async (token) => {
-        if (!token) {
-            alert("Live token नहीं मिला।");
-            return;
-        }
-
-        try {
-            showStatus("🔴 Live Voice शुरू हो रहा है...");
-
-            const module = await import("https://esm.sh/@google/genai");
-            const ai = new module.GoogleGenAI({apiKey:token});
-
-            S.live = await ai.live.connect({
-                model: "gemini-3.8-live",
-                config: {
-                    responseModalities: ["AUDIO"],
-                    systemInstruction: "तुम Nexora AI हो। सरल और स्पष्ट हिंदी में बोलो।",
-                    sessionResumption: {}
-                },
-                callbacks: {
-                    onmessage: (message) => {
-                        const parts = message?.serverContent?.modelTurn?.parts;
-                        if (!parts) return;
-                        for (const part of parts) {
-                            if (part.inlineData?.data) playPcm24k(part.inlineData.data);
-                        }
-                    },
-                    onerror: () => showStatus("⚠️ Live Voice में समस्या हुई।"),
-                    onclose: () => showStatus("")
-                }
-            });
-
-            await startLiveMicrophone();
-            showStatus("🔴 Live Voice चालू है — बोलिए...");
-        } catch (error) {
-            console.error(error);
-            showStatus("⚠️ Live Voice शुरू नहीं हो पाया।");
-            await stopLive();
-        }
-    };
-
-    async function stopLive() {
-        try { if (S.processor) S.processor.disconnect(); } catch (e) {}
-        try { if (S.source) S.source.disconnect(); } catch (e) {}
-        try { if (S.stream) S.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
-        try { if (S.live) S.live.close(); } catch (e) {}
-        try { if (S.liveCtx) await S.liveCtx.close(); } catch (e) {}
-
-        S.live = null;
-        S.processor = null;
-        S.source = null;
-        S.stream = null;
-        S.liveCtx = null;
-        S.nextAudioTime = 0;
-        showStatus("");
-    }
-
-    window.stopNexoraLive = stopLive;
-}
-"""
-
-
-with gr.Blocks(title="Nexora AI") as app:
-    with gr.Column(elem_id="app-shell"):
-        with gr.Row(elem_id="topbar"):
-            with gr.Column(scale=0, elem_classes=["top-button"]):
-                menu_btn = gr.Button("☰", elem_id="menu")
-            with gr.Column(elem_id="top-title"):
-                gr.Markdown(
-                    "<div id='brand-box'><div id='brand-icon'>N</div><div><div id='brand-name'>Nexora AI</div><div id='brand-sub'>AI Assistant</div></div></div>"
-                )
-            with gr.Column(scale=0, elem_classes=["top-button"]):
-                search_btn = gr.Button("⌕", elem_id="search")
-            with gr.Column(scale=0, elem_classes=["top-button"]):
-                more_top = gr.Button("⋮", elem_id="top-more")
-
-        gr.HTML("""
-        <div id="side-panel">
-            <div class="side-label">Nexora AI</div>
-            <div class="side-card" onclick="document.getElementById('new-chat').click()">＋ नया चैट</div>
-            <div class="side-label">हाल की चैट</div>
-            <div class="side-card">💬 आपकी बातचीत यहाँ दिखेगी</div>
+    ''')
+    conn.commit()
+    conn.close()
+
+# ऐप शुरू होते ही डेटाबेस को चालू करें
+init_db()
+
+
+# ----------------- 2. HTML, CSS & JS FRONTEND (डिजाइन और स्क्रिप्ट) -----------------
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexora AI Chat Interface</title>
+    <link href="https://googleapis.com" rel="stylesheet">
+    <link rel="stylesheet" href="https://cloudflare.com">
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Noto Sans Devanagari', 'Roboto', sans-serif; }
+        body { display: flex; height: 100vh; background-color: #f7f9fc; color: #333; overflow: hidden; }
+        
+        /* Sidebar Styles */
+        .sidebar { width: 300px; background-color: #172237; color: #fff; display: flex; flex-direction: column; justify-content: space-between; padding: 20px 0; flex-shrink: 0; }
+        .brand-section { display: flex; align-items: center; padding: 0 20px 20px 20px; border-bottom: 1px solid #243452; }
+        .brand-logo-small { width: 36px; height: 36px; background: linear-gradient(135deg, #2f54eb, #1890ff); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; margin-right: 12px; }
+        .brand-name-sidebar { font-size: 18px; font-weight: 600; }
+        .new-chat-btn { margin: 20px; padding: 12px; background-color: transparent; border: 1px solid #364e79; color: #fff; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 14px; transition: 0.3s; width: calc(100% - 40px); text-align: left; }
+        .new-chat-btn:hover { background-color: #243452; }
+        .history-section { flex-grow: 1; padding: 0 20px; overflow-y: auto; }
+        .history-title { font-size: 12px; color: #7289ad; text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.5px; }
+        .history-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; color: #b0c4de; font-size: 14px; cursor: pointer; transition: 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .history-item:hover { color: #fff; }
+        .sidebar-footer { padding: 20px; border-top: 1px solid #243452; display: flex; flex-direction: column; gap: 15px; }
+        .footer-link { display: flex; align-items: center; gap: 12px; color: #b0c4de; font-size: 14px; text-decoration: none; cursor: pointer; }
+        .footer-link:hover { color: #fff; }
+
+        /* Main Screen Styles */
+        .main-container { flex-grow: 1; display: flex; flex-direction: column; height: 100%; background-color: #f8fafc; }
+        .main-header { display: flex; align-items: center; justify-content: space-between; padding: 15px 30px; background-color: #fff; border-bottom: 1px solid #eef2f6; }
+        .header-left { display: flex; align-items: center; gap: 20px; }
+        .menu-toggle { font-size: 20px; cursor: pointer; color: #555; }
+        .header-title { font-size: 20px; font-weight: 600; color: #1e293b; }
+        .header-right { display: flex; align-items: center; gap: 20px; font-size: 18px; color: #555; }
+        .header-right i { cursor: pointer; }
+
+        /* Chat Feed Area */
+        .chat-feed { flex-grow: 1; padding: 40px; overflow-y: auto; display: flex; flex-direction: column; align-items: center; }
+        .welcome-section { text-align: center; margin-bottom: 40px; width: 100%; }
+        .large-logo { width: 80px; height: 80px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 45px; color: #fff; font-weight: bold; margin: 0 auto 20px auto; box-shadow: 0 10px 25px rgba(59, 130, 246, 0.25); }
+        .welcome-title { font-size: 32px; color: #1e293b; font-weight: 700; margin-bottom: 8px; }
+        .welcome-subtitle { font-size: 18px; color: #64748b; }
+
+        /* Cards Layout */
+        .suggestions-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; width: 100%; max-width: 700px; margin-bottom: 40px; }
+        .card { background-color: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; display: flex; gap: 15px; cursor: pointer; transition: all 0.2s ease; }
+        .card:hover { border-color: #cbd5e1; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03); transform: translateY(-1px); }
+        .card-icon-box { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+        
+        .bg-blue   { background-color: #eff6ff; color: #3b82f6; }
+        .bg-purple { background-color: #faf5ff; color: #a855f7; }
+        .bg-green  { background-color: #f0fdf4; color: #22c55e; }
+        .bg-orange { background-color: #fff7ed; color: #f97316; }
+
+        .card-content h3 { font-size: 16px; color: #1e293b; font-weight: 600; margin-bottom: 4px; }
+        .card-content p { font-size: 13px; color: #64748b; }
+
+        /* Message Bubbles */
+        .message-container { width: 100%; max-width: 700px; background-color: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.01); }
+        .message-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .msg-logo { width: 28px; height: 28px; background: linear-gradient(135deg, #3b82f6, #1d4ed8); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 14px; color: #fff; font-weight: bold; }
+        .msg-author { font-size: 13px; font-weight: 600; color: #475569; }
+        .message-body { font-size: 15px; color: #334155; line-height: 1.6; white-space: pre-line; }
+        .message-actions { display: flex; gap: 16px; margin-top: 15px; padding-top: 12px; border-top: 1px solid #f1f5f9; color: #94a3b8; font-size: 15px; }
+        .action-btn { cursor: pointer; transition: color 0.2s; }
+        .action-btn:hover { color: #475569; }
+
+        /* Input Controls */
+        .chat-input-container { padding: 20px 40px; background-color: #f8fafc; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+        .input-wrapper { width: 100%; max-width: 700px; background-color: #fff; border: 1px solid #cbd5e1; border-radius: 30px; padding: 6px 8px 6px 20px; display: flex; align-items: center; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02); }
+        .input-wrapper input { flex-grow: 1; border: none; outline: none; font-size: 15px; color: #333; padding: 8px 0; }
+        .input-wrapper input::placeholder { color: #94a3b8; }
+        .mic-btn { background: none; border: none; color: #64748b; font-size: 18px; padding: 10px; cursor: pointer; margin-right: 5px; }
+        .send-btn { background-color: #172237; color: #fff; border: none; width: 40px; height: 40px; border-radius: 50px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+        .send-btn:hover { background-color: #0f172a; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div>
+            <div class="brand-section">
+                <div class="brand-logo-small">N</div>
+                <div class="brand-name-sidebar">Nexora AI</div>
+            </div>
+            
+            <button class="new-chat-btn" onclick="clearAllChatHistory()">
+                <i class="fa-solid fa-trash-can"></i> Clear Chat History
+            </button>
+
+            <div class="history-section">
+                <div class="history-title">History</div>
+                <!-- डेटाबेस से आई पुरानी हिस्ट्री यहाँ अपने आप लोड होगी -->
+                <div id="dynamicHistoryList"></div>
+            </div>
         </div>
-        """)
 
-        with gr.Column(elem_id="chat-wrap"):
-            chat_html = gr.HTML(make_chat_html([]), elem_id="chat-html")
+        <div class="sidebar-footer">
+            <a class="footer-link"><i class="fa-solid fa-gear"></i> Settings</a>
+            <a class="footer-link"><i class="fa-regular fa-circle-question"></i> Help</a>
+        </div>
+    </div>
 
-        status = gr.Markdown("", elem_id="status")
+    <div class="main-container">
+        <header class="main-header">
+            <div class="header-left">
+                <i class="fa-solid fa-bars menu-toggle"></i>
+                <span class="header-title">Nexora AI</span>
+            </div>
+            <div class="header-right">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <i class="fa-solid fa-ellipsis-vertical" style="margin-left: 15px;"></i>
+            </div>
+        </header>
 
-        with gr.Column(elem_id="composer"):
-            with gr.Column(elem_id="composer-inner"):
-                question = gr.Textbox(
-                    placeholder="यहाँ अपना सवाल लिखें या 🎤 बोलें...",
-                    show_label=False,
-                    lines=1,
-                    max_lines=6,
-                    elem_id="question",
-                )
+        <div class="chat-feed" id="chatFeed">
+            <div class="welcome-section" id="welcomeSection">
+                <div class="large-logo">N</div>
+                <h1 class="welcome-title">Nexora AI</h1>
+                <p class="welcome-subtitle">मुझसे कुछ भी पूछिए</p>
+            </div>
 
-                with gr.Row(elem_id="composer-buttons"):
-                    attach_btn = gr.Button("＋", elem_classes=["composer-button"], scale=1)
-                    mic_btn = gr.Button("🎤", elem_classes=["composer-button"], scale=1)
-                    live_start = gr.Button("🔵", elem_classes=["composer-button"], scale=1)
-                    send_btn = gr.Button("➤", elem_id="send", elem_classes=["composer-button"], scale=2)
-                    live_stop = gr.Button("■", elem_classes=["composer-button"], scale=1)
-                    new_chat_btn = gr.Button("＋ नया चैट", elem_id="new-chat", elem_classes=["composer-button"], scale=2)
-
-    history_state = gr.State([])
-
-    send_btn.click(
-        fn=ask_nexora,
-        inputs=[question, history_state],
-        outputs=[chat_html, history_state, status, question],
-    )
-
-    question.submit(
-        fn=ask_nexora,
-        inputs=[question, history_state],
-        outputs=[chat_html, history_state, status, question],
-    )
-
-    new_chat_btn.click(
-        fn=new_chat,
-        inputs=[],
-        outputs=[chat_html, history_state, question],
-    )
-
-    mic_btn.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="() => { window.startNexoraMic(); }",
-    )
-
-    menu_btn.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="() => { window.toggleNexoraSidebar(); }",
-    )
-
-    search_btn.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="""
-        () => {
-            const el = document.querySelector('#question textarea');
-            if (el) {
-                el.focus();
-                el.scrollIntoView({block:'center'});
-            }
-        }
-        """,
-    )
-
-    more_top.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="""
-        () => {
-            alert('Nexora AI: नया चैट, टेक्स्ट चैट, माइक्रोफोन और Live Voice उपलब्ध हैं।');
-        }
-        """,
-    )
-
-    attach_btn.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="""
-        () => {
-            alert('फ़ाइल अटैचमेंट अभी इस संस्करण में सक्रिय नहीं है।');
-        }
-        """,
-    )
-
-    live_token = gr.State("")
-
-    live_start.click(
-        fn=create_live_token,
-        inputs=[],
-        outputs=[live_token],
-    )
-
-    live_token.change(
-        fn=None,
-        inputs=[live_token],
-        outputs=[],
-        js="token => { window.startNexoraLive(token); }",
-    )
-
-    live_stop.click(
-        fn=None,
-        inputs=[],
-        outputs=[],
-        js="() => { window.stopNexoraLive(); }",
-    )
-
-
-if __name__ == "__main__":
-    app.launch(
-        server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", "7860")),
-        css=CSS,
-        js=JS,
-                )
+            <div class="suggestions-grid" id="suggestionsGrid">
+                <div class="card" onclick="selectSuggestion('भारत की राजधानी क्या है?')">
+                    <div class="card-icon-box bg-blue"><i class="fa-regular fa-lightbulb"></i></div>
+                    <div class="card-content"><h3>जानकारी पूछें</h3><p>भारत की राजधानी क्या है?</p></div>
+                </div>
                 
