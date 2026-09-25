@@ -1,1416 +1,763 @@
-import os
-import html
-import gradio as gr
-from google import genai
-
-# ============================================================
-# NEXORA AI — SINGLE FILE APP
-# ============================================================
-
-API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not API_KEY:
-    raise RuntimeError("GEMINI_API_KEY environment variable is missing.")
-
-TEXT_MODEL = "gemini-3.5-flash-lite"
-
-client = genai.Client(api_key=API_KEY)
-
-SYSTEM_PROMPT = """
-तुम Nexora AI हो।
-
-नियम:
-1. यूज़र हिंदी में पूछे तो हिंदी देवनागरी में उत्तर दो।
-2. यूज़र अंग्रेज़ी में पूछे तो अंग्रेज़ी में उत्तर दो।
-3. बिना जरूरत Roman Hindi या Hinglish मत लिखो।
-4. सीधे और साफ उत्तर दो।
-5. तथ्यात्मक सवालों में सही और स्पष्ट जानकारी दो।
-6. बहुत लंबी भूमिका मत दो।
-7. कोड मांगा जाए तो पूरा और साफ code दो।
-"""
-
-
-# ============================================================
-# HTML / CSS
-# ============================================================
-
-CSS = r"""
-* {
-    box-sizing: border-box;
-}
-
-html,
-body,
-.gradio-container {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    overflow: hidden !important;
-    font-family: Arial, Helvetica, sans-serif !important;
-}
-
-body {
-    background: #ffffff !important;
-}
-
-.gradio-container {
-    max-width: none !important;
-    background: #ffffff !important;
-}
-
-/* Remove Gradio default spacing */
-#app-root {
-    width: 100%;
-    height: 100vh;
-}
-
-/* =========================================================
-   APP
-   ========================================================= */
-
-#nexora-app {
-    width: 100%;
-    height: 100vh;
-    display: flex;
-    background: #ffffff;
-    color: #202123;
-}
-
-/* =========================================================
-   SIDEBAR
-   ========================================================= */
-
-#sidebar {
-    width: 260px;
-    height: 100vh;
-    background: #f7f7f8;
-    border-right: 1px solid #e5e5e5;
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-    transition: width 0.2s ease, transform 0.2s ease;
-    z-index: 50;
-}
-
-#sidebar-header {
-    height: 64px;
-    padding: 12px;
-    display: flex;
-    align-items: center;
-}
-
-#new-chat-btn {
-    width: 100%;
-    height: 42px;
-    border: 1px solid #d9d9e3;
-    border-radius: 10px;
-    background: #ffffff;
-    color: #202123;
-    font-size: 14px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    padding: 0 14px;
-    gap: 10px;
-}
-
-#new-chat-btn:hover {
-    background: #ececf1;
-}
-
-.new-icon {
-    font-size: 20px;
-    line-height: 1;
-}
-
-#sidebar-history-title {
-    padding: 12px 16px 8px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #8e8ea0;
-}
-
-#history-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px 8px;
-}
-
-.history-empty {
-    color: #8e8ea0;
-    font-size: 13px;
-    padding: 14px 10px;
-}
-
-.history-item {
-    width: 100%;
-    border: 0;
-    background: transparent;
-    padding: 10px;
-    border-radius: 8px;
-    text-align: left;
-    color: #343541;
-    font-size: 13px;
-    cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.history-item:hover {
-    background: #ececf1;
-}
-
-#sidebar-bottom {
-    border-top: 1px solid #e5e5e5;
-    padding: 10px;
-}
-
-.profile-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px;
-}
-
-.profile-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    background: #111827;
-    color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-}
-
-.profile-name {
-    font-size: 14px;
-    font-weight: 600;
-}
-
-/* =========================================================
-   MAIN
-   ========================================================= */
-
-#main-area {
-    flex: 1;
-    min-width: 0;
-    height: 100vh;
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    background: #ffffff;
-}
-
-/* =========================================================
-   TOPBAR
-   ========================================================= */
-
-#topbar {
-    height: 58px;
-    min-height: 58px;
-    border-bottom: 1px solid #eeeeee;
-    display: flex;
-    align-items: center;
-    padding: 0 18px;
-    background: rgba(255,255,255,0.96);
-    z-index: 20;
-}
-
-#menu-btn {
-    width: 38px !important;
-    min-width: 38px !important;
-    height: 38px !important;
-    border: 0 !important;
-    border-radius: 8px !important;
-    background: transparent !important;
-    color: #343541 !important;
-    font-size: 20px !important;
-    cursor: pointer !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-}
-
-#menu-btn:hover {
-    background: #f1f1f1 !important;
-}
-
-#brand-area {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    margin-left: 7px;
-}
-
-.brand-logo {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    background: #111827;
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    font-size: 16px;
-}
-
-.brand-name {
-    font-size: 16px;
-    font-weight: 600;
-    color: #202123;
-}
-
-/* =========================================================
-   CHAT AREA
-   ========================================================= */
-
-#chat-wrap {
-    position: absolute;
-    top: 58px;
-    left: 0;
-    right: 0;
-    bottom: 120px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    scroll-behavior: smooth;
-}
-
-#chat-content {
-    width: 100%;
-    min-height: 100%;
-    padding-bottom: 30px;
-}
-
-/* =========================================================
-   HOME SCREEN
-   ========================================================= */
-
-#home-screen {
-    width: 100%;
-    min-height: calc(100vh - 178px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 35px 20px 40px;
-}
-
-.home-inner {
-    width: 100%;
-    max-width: 760px;
-    text-align: center;
-}
-
-.home-logo {
-    width: 58px;
-    height: 58px;
-    border-radius: 16px;
-    margin: 0 auto 18px;
-    background: #111827;
-    color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 28px;
-    font-weight: 800;
-}
-
-.home-title {
-    margin: 0;
-    font-size: 32px;
-    line-height: 1.2;
-    font-weight: 600;
-    color: #202123;
-}
-
-.home-subtitle {
-    margin: 10px 0 28px;
-    color: #6e6e80;
-    font-size: 16px;
-}
-
-.suggestions {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-    text-align: left;
-}
-
-.suggestion {
-    border: 1px solid #e5e5e5;
-    background: #ffffff;
-    border-radius: 12px;
-    padding: 14px;
-    cursor: pointer;
-    transition: background 0.15s ease, border 0.15s ease;
-}
-
-.suggestion:hover {
-    background: #f7f7f8;
-    border-color: #d5d5d5;
-}
-
-.suggestion-title {
-    font-size: 14px;
-    color: #343541;
-    font-weight: 500;
-}
-
-/* =========================================================
-   MESSAGES
-   ========================================================= */
-
-.message-row {
-    width: 100%;
-    padding: 24px 20px;
-}
-
-.message-row.user {
-    background: #ffffff;
-}
-
-.message-row.assistant {
-    background: #f7f7f8;
-}
-
-.message-inner {
-    max-width: 820px;
-    margin: 0 auto;
-    display: flex;
-    gap: 15px;
-}
-
-.message-avatar {
-    width: 32px;
-    min-width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    font-size: 14px;
-}
-
-.user-avatar {
-    background: #ececf1;
-    color: #343541;
-}
-
-.ai-avatar {
-    background: #111827;
-    color: #ffffff;
-}
-
-.message-body {
-    flex: 1;
-    min-width: 0;
-}
-
-.message-name {
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 8px;
-    color: #343541;
-}
-
-.message-text {
-    font-size: 15px;
-    line-height: 1.65;
-    color: #343541;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-}
-
-/* =========================================================
-   SIX ACTION BUTTONS
-   ========================================================= */
-
-.answer-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 13px;
-    flex-wrap: wrap;
-}
-
-.answer-action {
-    border: 0;
-    background: transparent;
-    color: #8e8ea0;
-    border-radius: 7px;
-    min-width: 32px;
-    height: 30px;
-    padding: 0 7px;
-    cursor: pointer;
-    font-size: 14px;
-}
-
-.answer-action:hover {
-    background: #e9e9ee;
-    color: #343541;
-}
-
-.action-status {
-    display: inline-block;
-    margin-left: 5px;
-    color: #6e6e80;
-    font-size: 12px;
-}
-
-/* =========================================================
-   COMPOSER
-   ========================================================= */
-
-#composer {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    min-height: 120px;
-    background: linear-gradient(
-        to top,
-        #ffffff 72%,
-        rgba(255,255,255,0.95)
-    );
-    padding: 16px 20px 18px;
-    z-index: 30;
-}
-
-#composer-inner {
-    width: 100%;
-    max-width: 820px;
-    margin: 0 auto;
-}
-
-#input-box {
-    width: 100%;
-}
-
-#input-box textarea {
-    border: 1px solid #d9d9e3 !important;
-    border-radius: 14px !important;
-    background: #ffffff !important;
-    color: #202123 !important;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04) !important;
-    padding: 14px 52px 14px 16px !important;
-    font-size: 15px !important;
-    min-height: 58px !important;
-    max-height: 160px !important;
-}
-
-#input-box textarea:focus {
-    border-color: #b9b9c5 !important;
-    box-shadow: 0 2px 12px rgba(0,0,0,0.06) !important;
-}
-
-#composer-buttons {
-    display: flex;
-    justify-content: flex-end;
-    gap: 6px;
-    margin-top: -48px;
-    margin-right: 8px;
-    position: relative;
-    z-index: 5;
-}
-
-#send-btn,
-#mic-btn {
-    width: 36px !important;
-    min-width: 36px !important;
-    height: 36px !important;
-    border-radius: 9px !important;
-    border: 0 !important;
-    padding: 0 !important;
-    font-size: 17px !important;
-    box-shadow: none !important;
-}
-
-#send-btn {
-    background: #111827 !important;
-    color: #ffffff !important;
-}
-
-#mic-btn {
-    background: #f1f1f1 !important;
-    color: #343541 !important;
-}
-
-#send-btn:hover {
-    opacity: 0.88;
-}
-
-#mic-btn:hover {
-    background: #e5e5e5 !important;
-}
-
-.composer-note {
-    text-align: center;
-    margin-top: 8px;
-    color: #8e8ea0;
-    font-size: 11px;
-}
-
-/* Hide Gradio button containers around our custom buttons */
-#send-btn .wrap,
-#mic-btn .wrap,
-#menu-btn .wrap,
-#new-chat-btn .wrap {
-    border: 0 !important;
-}
-
-/* =========================================================
-   MOBILE
-   ========================================================= */
-
-@media (max-width: 700px) {
-
-    #sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        transform: translateX(-100%);
-        width: 270px;
-        box-shadow: 5px 0 20px rgba(0,0,0,0.12);
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nexora AI</title>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
 
-    #sidebar.open {
-        transform: translateX(0);
+    body {
+      display: flex;
+      height: 100vh;
+      background-color: #f8f9fa;
+      color: #1e1e1e;
+      overflow: hidden;
     }
 
-    #topbar {
-        padding: 0 10px;
+    /* ---------- SIDEBAR ---------- */
+    .sidebar {
+      width: 260px;
+      background-color: #181d28;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 16px;
+      transition: all 0.3s ease;
+      z-index: 100;
+    }
+
+    .sidebar.closed {
+      margin-left: -260px;
+    }
+
+    .sidebar-top {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 4px 0;
+    }
+
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 18px;
     }
 
     .brand-name {
-        font-size: 15px;
+      font-size: 18px;
+      font-weight: 600;
     }
 
-    #chat-wrap {
-        bottom: 120px;
+    .new-chat-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background-color: #242b3b;
+      color: #ffffff;
+      border: 1px solid #333d52;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
     }
 
-    .message-row {
-        padding: 20px 14px;
+    .new-chat-btn:hover {
+      background-color: #2e374d;
     }
 
-    .message-inner {
-        gap: 10px;
+    .history-title {
+      font-size: 12px;
+      color: #8e9bb0;
+      margin-top: 10px;
     }
 
-    .message-avatar {
-        width: 30px;
-        min-width: 30px;
-        height: 30px;
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 50vh;
+      overflow-y: auto;
     }
 
-    .message-text {
-        font-size: 14px;
+    .history-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #d1d5db;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
-    #composer {
-        padding: 12px 10px 15px;
+    .history-item:hover {
+      background-color: #242b3b;
+      color: #fff;
     }
 
-    .suggestions {
+    .sidebar-bottom {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      border-top: 1px solid #283144;
+      padding-top: 12px;
+    }
+
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      color: #d1d5db;
+      font-size: 14px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      text-align: left;
+      width: 100%;
+    }
+
+    .nav-btn:hover {
+      background-color: #242b3b;
+      color: #fff;
+    }
+
+    /* ---------- MAIN CONTAINER ---------- */
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: relative;
+    }
+
+    /* Header */
+    .top-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background-color: #ffffff;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .toggle-btn {
+      background: none;
+      border: none;
+      font-size: 18px;
+      cursor: pointer;
+      color: #4b5563;
+    }
+
+    .header-title {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .header-right {
+      display: flex;
+      gap: 16px;
+      color: #4b5563;
+      font-size: 16px;
+    }
+
+    .header-right i {
+      cursor: pointer;
+    }
+
+    /* Chat Area */
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .chat-content {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Hero Section */
+    .hero-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      margin: 15px 0 25px 0;
+    }
+
+    .hero-logo {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 44px;
+      font-weight: bold;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 20px rgba(59, 130, 246, 0.25);
+    }
+
+    .hero-title {
+      font-size: 26px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 6px;
+    }
+
+    .hero-subtitle {
+      font-size: 15px;
+      color: #6b7280;
+    }
+
+    /* Prompt Cards */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      width: 100%;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      gap: 12px;
+    }
+
+    .card:hover {
+      border-color: #3b82f6;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    }
+
+    .card-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .card-icon.blue { background-color: #eff6ff; color: #2563eb; }
+    .card-icon.purple { background-color: #faf5ff; color: #9333ea; }
+    .card-icon.green { background-color: #f0fdf4; color: #16a34a; }
+    .card-icon.orange { background-color: #fff7ed; color: #ea580c; }
+
+    .card-text h4 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 2px;
+    }
+
+    .card-text p {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    /* Messages */
+    .message {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .message.ai {
+      background-color: #f3f4f6;
+      border-radius: 16px;
+      padding: 16px;
+    }
+
+    .message.user {
+      align-items: flex-end;
+    }
+
+    .user-bubble {
+      background-color: #3b82f6;
+      color: white;
+      padding: 12px 16px;
+      border-radius: 16px;
+      border-bottom-right-radius: 4px;
+      max-width: 80%;
+      font-size: 14px;
+    }
+
+    .message-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    .bot-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .message-body {
+      font-size: 14px;
+      line-height: 1.5;
+      color: #1f2937;
+    }
+
+    /* Action Toolbar */
+    .action-bar {
+      display: flex;
+      gap: 16px;
+      margin-top: 8px;
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    .action-bar i {
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .action-bar i:hover {
+      color: #111827;
+    }
+
+    .action-bar i.active-like {
+      color: #16a34a;
+    }
+
+    .action-bar i.active-dislike {
+      color: #dc2626;
+    }
+
+    /* Bottom Input Bar */
+    .input-container {
+      padding: 12px 16px 20px 16px;
+      background-color: #ffffff;
+      display: flex;
+      justify-content: center;
+    }
+
+    .input-box {
+      width: 100%;
+      max-width: 680px;
+      background-color: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 28px;
+      display: flex;
+      align-items: center;
+      padding: 6px 12px 6px 18px;
+    }
+
+    .input-box input {
+      flex: 1;
+      border: none;
+      outline: none;
+      background: transparent;
+      font-size: 14px;
+      color: #1f2937;
+    }
+
+    .input-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      margin-left: 6px;
+      background: transparent;
+      color: #4b5563;
+      font-size: 15px;
+    }
+
+    .input-btn.send-btn {
+      background-color: #000000;
+      color: #ffffff;
+    }
+
+    .input-btn.send-btn:hover {
+      background-color: #1f2937;
+    }
+
+    /* Responsive */
+    @media (max-width: 640px) {
+      .sidebar {
+        position: absolute;
+        height: 100%;
+      }
+      .cards-grid {
         grid-template-columns: 1fr;
+      }
     }
+  </style>
+</head>
+<body>
 
-    .home-title {
-        font-size: 27px;
-    }
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <div class="brand-icon">N</div>
+        <div class="brand-name">Nexora AI</div>
+      </div>
 
-    .home-subtitle {
-        font-size: 14px;
-    }
+      <button class="new-chat-btn" onclick="startNewChat()">
+        <i class="fa-regular fa-comment"></i>
+        <span>New Chat</span>
+      </button>
 
-    #home-screen {
-        padding-top: 20px;
-    }
-}
-"""
-
-
-# ============================================================
-# HTML BUILDERS
-# ============================================================
-
-def escape_text(value):
-    return html.escape(str(value))
-
-
-def make_home_html():
-    return """
-    <div id="home-screen">
-        <div class="home-inner">
-            <div class="home-logo">N</div>
-
-            <h1 class="home-title">Nexora AI</h1>
-
-            <div class="home-subtitle">
-                मुझसे कुछ भी पूछिए
-            </div>
-
-            <div class="suggestions">
-
-                <div class="suggestion"
-                     onclick="useSuggestion('भारत की राजधानी क्या है?')">
-                    <div class="suggestion-title">
-                        भारत की राजधानी क्या है?
-                    </div>
-                </div>
-
-                <div class="suggestion"
-                     onclick="useSuggestion('एक छोटी और रोचक कहानी सुनाइए')">
-                    <div class="suggestion-title">
-                        एक छोटी और रोचक कहानी सुनाइए
-                    </div>
-                </div>
-
-                <div class="suggestion"
-                     onclick="useSuggestion('मैं Python सीखना चाहता हूँ, शुरुआत कैसे करूँ?')">
-                    <div class="suggestion-title">
-                        Python सीखना कैसे शुरू करूँ?
-                    </div>
-                </div>
-
-                <div class="suggestion"
-                     onclick="useSuggestion('मेरे लिए एक आसान daily productivity plan बनाइए')">
-                    <div class="suggestion-title">
-                        Daily productivity plan बनाइए
-                    </div>
-                </div>
-
-            </div>
-        </div>
+      <div class="history-title">History</div>
+      <div class="history-list" id="historyList">
+        <div class="history-item" onclick="loadHistory(this)"><i class="fa-regular fa-message"></i> भारत की राजधानी क्या है?</div>
+        <div class="history-item" onclick="loadHistory(this)"><i class="fa-regular fa-message"></i> Python सीखने की शुरुआत</div>
+        <div class="history-item" onclick="loadHistory(this)"><i class="fa-regular fa-message"></i> आज का productivity plan</div>
+        <div class="history-item" onclick="loadHistory(this)"><i class="fa-regular fa-message"></i> एक मज़ेदार कहानी सुनाइए</div>
+        <div class="history-item" onclick="loadHistory(this)"><i class="fa-regular fa-message"></i> हेल्थ टिप्स</div>
+        <div class="history-item" onclick="loadHistory(this)"><i class="fa-regular fa-message"></i> AI के बारे में जानकारी</div>
+      </div>
     </div>
-    """
 
-
-def make_message(role, content):
-    safe_content = escape_text(content)
-
-    if role == "user":
-        return f"""
-        <div class="message-row user">
-            <div class="message-inner">
-                <div class="message-avatar user-avatar">U</div>
-                <div class="message-body">
-                    <div class="message-name">आप</div>
-                    <div class="message-text">{safe_content}</div>
-                </div>
-            </div>
-        </div>
-        """
-
-    return f"""
-    <div class="message-row assistant">
-        <div class="message-inner">
-            <div class="message-avatar ai-avatar">N</div>
-
-            <div class="message-body">
-
-                <div class="message-name">Nexora AI</div>
-
-                <div class="message-text nexora-answer">
-                    {safe_content}
-                </div>
-
-                <div class="answer-actions">
-
-                    <button class="answer-action"
-                            onclick="answerAction(this, 'copy')"
-                            title="Copy">
-                        📋
-                    </button>
-
-                    <button class="answer-action"
-                            onclick="answerAction(this, 'like')"
-                            title="Like">
-                        👍
-                    </button>
-
-                    <button class="answer-action"
-                            onclick="answerAction(this, 'dislike')"
-                            title="Dislike">
-                        👎
-                    </button>
-
-                    <button class="answer-action"
-                            onclick="answerAction(this, 'sound')"
-                            title="Read aloud">
-                        🔊
-                    </button>
-
-                    <button class="answer-action"
-                            onclick="answerAction(this, 'share')"
-                            title="Share">
-                        ↗
-                    </button>
-
-                    <button class="answer-action"
-                            onclick="answerAction(this, 'more')"
-                            title="More">
-                        ⋯
-                    </button>
-
-                    <span class="action-status"></span>
-
-                </div>
-            </div>
-        </div>
+    <div class="sidebar-bottom">
+      <button class="nav-btn" onclick="openSettings()">
+        <i class="fa-solid fa-gear"></i>
+        <span>Settings</span>
+      </button>
+      <button class="nav-btn" onclick="openHelp()">
+        <i class="fa-regular fa-circle-question"></i>
+        <span>Help</span>
+      </button>
     </div>
-    """
+  </aside>
 
+  <!-- MAIN AREA -->
+  <main class="main-container">
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="header-left">
+        <button class="toggle-btn" onclick="toggleSidebar()"><i class="fa-solid fa-bars"></i></button>
+        <span class="header-title">Nexora AI</span>
+      </div>
+      <div class="header-right">
+        <i class="fa-solid fa-magnifying-glass" onclick="alert('Search option click hua')"></i>
+        <i class="fa-solid fa-ellipsis-vertical" onclick="alert('More options click hua')"></i>
+      </div>
+    </header>
 
-def make_chat_html(history):
-    if not history:
-        return make_home_html()
-
-    output = []
-
-    for item in history:
-        if isinstance(item, dict):
-            role = item.get("role", "")
-            content = item.get("content", "")
-        else:
-            role = item[0]
-            content = item[1]
-
-        if role == "user":
-            output.append(make_message("user", content))
-        elif role == "assistant":
-            output.append(make_message("assistant", content))
-
-    return "\n".join(output)
-
-
-def make_history_html(history):
-    if not history:
-        return """
-        <div class="history-empty">
-            अभी कोई चैट नहीं है।
+    <!-- Chat Scroll Area -->
+    <div class="chat-area">
+      <div class="chat-content" id="chatContent">
+        
+        <!-- Hero Section -->
+        <div class="hero-section" id="heroSection">
+          <div class="hero-logo">N</div>
+          <h2 class="hero-title">Nexora AI</h2>
+          <p class="hero-subtitle">मुझसे कुछ भी पूछिए</p>
         </div>
-        """
 
-    items = []
-
-    for item in history:
-        if item.get("role") == "user":
-            text = item.get("content", "").strip()
-
-            if text:
-                short_text = text[:42]
-                if len(text) > 42:
-                    short_text += "..."
-
-                safe = escape_text(short_text)
-
-                items.append(
-                    f'<div class="history-item">{safe}</div>'
-                )
-
-    if not items:
-        return """
-        <div class="history-empty">
-            अभी कोई चैट नहीं है।
-        </div>
-        """
-
-    return "".join(items)
-
-
-# ============================================================
-# CHAT LOGIC
-# ============================================================
-
-def build_prompt(history, question):
-    recent = history[-12:]
-
-    conversation = []
-
-    for item in recent:
-        role = item.get("role")
-        content = item.get("content", "")
-
-        if role == "user":
-            conversation.append("यूज़र: " + content)
-
-        elif role == "assistant":
-            conversation.append("Nexora AI: " + content)
-
-    old_chat = "\n".join(conversation)
-
-    return f"""
-{SYSTEM_PROMPT}
-
-पिछली बातचीत:
-{old_chat}
-
-नया सवाल:
-{question}
-
-अब यूज़र के सवाल का सीधा उत्तर दो।
-"""
-
-
-def ask_nexora(message, history):
-    message = (message or "").strip()
-
-    if not message:
-        yield make_chat_html(history), history, make_history_html(history)
-        return
-
-    history = list(history or [])
-
-    history.append({
-        "role": "user",
-        "content": message
-    })
-
-    # Show user's message immediately.
-    yield make_chat_html(history), history, make_history_html(history)
-
-    prompt = build_prompt(history[:-1], message)
-
-    answer = ""
-
-    try:
-        stream = client.models.generate_content_stream(
-            model=TEXT_MODEL,
-            contents=prompt
-        )
-
-        for chunk in stream:
-            text = getattr(chunk, "text", None)
-
-            if text:
-                answer += text
-
-                temporary = list(history)
-
-                temporary.append({
-                    "role": "assistant",
-                    "content": answer + "▌"
-                })
-
-                yield (
-                    make_chat_html(temporary),
-                    history,
-                    make_history_html(history)
-                )
-
-    except Exception as first_error:
-        try:
-            response = client.models.generate_content(
-                model=TEXT_MODEL,
-                contents=prompt
-            )
-
-            answer = getattr(response, "text", "") or ""
-
-        except Exception:
-            answer = "⚠️ उत्तर देने में समस्या हुई। कृपया कुछ देर बाद फिर कोशिश करें।"
-
-    if not answer:
-        answer = "⚠️ कोई उत्तर प्राप्त नहीं हुआ।"
-
-    history.append({
-        "role": "assistant",
-        "content": answer
-    })
-
-    yield (
-        make_chat_html(history),
-        history,
-        make_history_html(history)
-    )
-
-
-def new_chat():
-    return make_home_html(), [], make_history_html([])
-
-
-# ============================================================
-# JAVASCRIPT
-# ============================================================
-
-JS = r"""
-function getInput() {
-    return document.querySelector("#input-box textarea");
-}
-
-function setInput(value) {
-    const input = getInput();
-
-    if (!input) {
-        return;
-    }
-
-    input.value = value;
-
-    input.dispatchEvent(
-        new Event("input", { bubbles: true })
-    );
-
-    input.dispatchEvent(
-        new Event("change", { bubbles: true })
-    );
-
-    input.focus();
-}
-
-
-window.useSuggestion = function(text) {
-    setInput(text);
-};
-
-
-function scrollChat() {
-    const box = document.querySelector("#chat-wrap");
-
-    if (box) {
-        box.scrollTop = box.scrollHeight;
-    }
-}
-
-
-function fastScroll() {
-    requestAnimationFrame(() => {
-        scrollChat();
-    });
-
-    setTimeout(scrollChat, 20);
-    setTimeout(scrollChat, 80);
-    setTimeout(scrollChat, 160);
-}
-
-
-function sendMessage() {
-    const btn = document.querySelector("#send-btn button");
-
-    if (btn) {
-        btn.click();
-    }
-}
-
-
-function setupInput() {
-    const input = getInput();
-
-    if (!input || input.dataset.nexoraReady === "1") {
-        return;
-    }
-
-    input.dataset.nexoraReady = "1";
-
-    input.addEventListener("keydown", function(event) {
-        if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            sendMessage();
-        }
-    });
-}
-
-
-function observeChat() {
-    const chat = document.querySelector("#chat-content");
-
-    if (!chat || chat.dataset.observerReady === "1") {
-        return;
-    }
-
-    chat.dataset.observerReady = "1";
-
-    const observer = new MutationObserver(function() {
-        fastScroll();
-        setupInput();
-    });
-
-    observer.observe(chat, {
-        childList: true,
-        subtree: true,
-        characterData: true
-    });
-}
-
-
-window.answerAction = async function(button, action) {
-
-    const container = button.closest(".message-body");
-
-    if (!container) {
-        return;
-    }
-
-    const answer = container.querySelector(".nexora-answer");
-    const status = container.querySelector(".action-status");
-
-    if (!answer) {
-        return;
-    }
-
-    const text = answer.innerText.trim();
-
-    if (action === "copy") {
-        try {
-            await navigator.clipboard.writeText(text);
-
-            if (status) {
-                status.textContent = "कॉपी हो गया";
-                setTimeout(() => {
-                    status.textContent = "";
-                }, 1600);
-            }
-
-        } catch (error) {
-            if (status) {
-                status.textContent = "कॉपी नहीं हुआ";
-            }
-        }
-    }
-
-    else if (action === "like") {
-        if (status) {
-            status.textContent = "धन्यवाद";
-            setTimeout(() => {
-                status.textContent = "";
-            }, 1200);
-        }
-    }
-
-    else if (action === "dislike") {
-        if (status) {
-            status.textContent = "Feedback दर्ज";
-            setTimeout(() => {
-                status.textContent = "";
-            }, 1200);
-        }
-    }
-
-    else if (action === "sound") {
-
-        if ("speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = "hi-IN";
-            utterance.rate = 0.92;
-
-            window.speechSynthesis.speak(utterance);
-
-            if (status) {
-                status.textContent = "पढ़ रहा हूँ...";
-                setTimeout(() => {
-                    status.textContent = "";
-                }, 1800);
-            }
-        }
-    }
-
-    else if (action === "share") {
-
-        if (navigator.share) {
-            try {
-                await navigator.share({
-                    title: "Nexora AI",
-                    text: text
-                });
-            } catch (error) {
-                // User cancelled share.
-            }
-        } else {
-            try {
-                await navigator.clipboard.writeText(text);
-
-                if (status) {
-                    status.textContent = "कॉपी करके शेयर करें";
-                    setTimeout(() => {
-                        status.textContent = "";
-                    }, 1800);
-                }
-            } catch (error) {
-                // Ignore.
-            }
-        }
-    }
-
-    else if (action === "more") {
-
-        if (status) {
-            status.textContent = "Nexora AI";
-            setTimeout(() => {
-                status.textContent = "";
-            }, 1200);
-        }
-    }
-};
-
-
-function setupMic() {
-
-    const mic = document.querySelector("#mic-btn button");
-
-    if (!mic || mic.dataset.ready === "1") {
-        return;
-    }
-
-    mic.dataset.ready = "1";
-
-    const SpeechRecognition =
-        window.SpeechRecognition ||
-        window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-        mic.style.display = "none";
-        return;
-    }
-
-    const recognition = new SpeechRecognition();
-
-    recognition.lang = "hi-IN";
-    recognition.continuous = false;
-    recognition.interimResults = true;
-
-    mic.addEventListener("click", function() {
-
-        try {
-            recognition.start();
-        } catch (error) {
-            // Already running.
-        }
-    });
-
-    recognition.onresult = function(event) {
-
-        let finalText = "";
-
-        for (
-            let i = event.resultIndex;
-            i < event.results.length;
-            i++
-        ) {
-            finalText += event.results[i][0].transcript;
-        }
-
-        setInput(finalText);
-    };
-
-    recognition.onerror = function() {
-        // Ignore browser speech errors.
-    };
-}
-
-
-function setupMenu() {
-
-    const menu = document.querySelector("#menu-btn button");
-    const sidebar = document.querySelector("#sidebar");
-
-    if (!menu || !sidebar || menu.dataset.ready === "1") {
-        return;
-    }
-
-    menu.dataset.ready = "1";
-
-    menu.addEventListener("click", function() {
-        sidebar.classList.toggle("open");
-    });
-}
-
-
-function setupAll() {
-    setupInput();
-    setupMic();
-    setupMenu();
-    observeChat();
-    fastScroll();
-}
-
-
-setInterval(setupAll, 500);
-
-window.addEventListener("load", function() {
-    setTimeout(setupAll, 300);
-    setTimeout(setupAll, 1000);
-});
-"""
-
-
-# ============================================================
-# GRADIO UI
-# ============================================================
-
-with gr.Blocks(
-    title="Nexora AI",
-    css=CSS,
-    js=JS
-) as demo:
-
-    history_state = gr.State([])
-
-    with gr.HTML():
-        print(
-            """
-            <div id="nexora-app">
-
-                <aside id="sidebar">
-
-                    <div id="sidebar-header">
-                        <button id="new-chat-btn">
-                            <span class="new-icon">＋</span>
-                            <span>New chat</span>
-                        </button>
-                    </div>
-
-                    <div id="sidebar-history-title">
-                        Chat history
-                    </div>
-
-                    <div id="history-list">
-                        <div class="history-empty">
-                            अभी कोई चैट नहीं है।
-                        </div>
-                    </div>
-
-                    <div id="sidebar-bottom">
-                        <div class="profile-row">
-                            <div class="profile-avatar">N</div>
-                            <div class="profile-name">
-                                Nexora AI
-                            </div>
-                        </div>
-                    </div>
-
-                </aside>
-
-                <main id="main-area">
-
-                    <div id="topbar">
-
-                        <button id="menu-btn">
-                            ☰
-                        </button>
-
-                        <div id="brand-area">
-                            <div class="brand-logo">N</div>
-                            <div class="brand-name">
-                                Nexora AI
-                            </div>
-                        </div>
-
-                    </div>
-
-                    <div id="chat-wrap">
-                        <div id="chat-content">
-                        </div>
-                    </div>
-
-                    <div id="composer">
-
-                        <div id="composer-inner">
-
-                            <div id="input-box"></div>
-
-                            <div id="composer-buttons">
-                                <div id="mic-btn"></div>
-                                <div id="send-btn"></div>
-                            </div>
-
-                            <div class="composer-note">
-                                Nexora AI गलतियाँ कर सकता है। महत्वपूर्ण जानकारी जाँच लें।
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                </main>
-
+        <!-- 4 Prompt Cards -->
+        <div class="cards-grid" id="cardsGrid">
+          <div class="card" onclick="sendQuickPrompt('मुझे किसी भी विषय पर जानकारी दीजिए')">
+            <div class="card-icon blue"><i class="fa-regular fa-lightbulb"></i></div>
+            <div class="card-text">
+              <h4>जानकारी पूछें</h4>
+              <p>किसी भी विषय पर सवाल पूछें</p>
             </div>
-            """
-        )
+          </div>
 
-    # Invisible Gradio components used by the UI.
-    chat_html = gr.HTML(
-        value=make_home_html(),
-        elem_id="chat-content"
-    )
+          <div class="card" onclick="sendQuickPrompt('मुझे एक सुंदर कहानी या संदेश लिखकर दीजिए')">
+            <div class="card-icon purple"><i class="fa-solid fa-pen-nib"></i></div>
+            <div class="card-text">
+              <h4>लिखने में मदद</h4>
+              <p>कहानी, संदेश या लेख लिखें</p>
+            </div>
+          </div>
 
-    history_html = gr.HTML(
-        value=make_history_html([]),
-        elem_id="history-list"
-    )
+          <div class="card" onclick="sendQuickPrompt('मुझे कोडिंग और पढ़ाई में मदद की ज़रूरत है')">
+            <div class="card-icon green"><i class="fa-solid fa-laptop-code"></i></div>
+            <div class="card-text">
+              <h4>सीखने में मदद</h4>
+              <p>कोड और पढ़ाई में सहायता</p>
+            </div>
+          </div>
 
-    message_input = gr.Textbox(
-        show_label=False,
-        placeholder="Nexora AI से कुछ भी पूछें...",
-        lines=1,
-        max_lines=6,
-        elem_id="input-box",
-        container=False
-    )
+          <div class="card" onclick="sendQuickPrompt('मेरे आज के काम का योजना (Plan) बनाइए')">
+            <div class="card-icon orange"><i class="fa-solid fa-braille"></i></div>
+            <div class="card-text">
+              <h4>योजना बनाएं</h4>
+              <p>काम को आसान तरीके से व्यवस्थित करें</p>
+            </div>
+          </div>
+        </div>
 
-    mic_button = gr.Button(
-        "🎙️",
-        elem_id="mic-btn",
-        size="sm"
-    )
+        <!-- Default Bot Greeting -->
+        <div class="message ai">
+          <div class="message-header">
+            <div class="avatar">N</div>
+            <span class="bot-name">Nexora AI</span>
+          </div>
+          <div class="message-body" id="greetingText">
+            नमस्ते! मैं Nexora AI हूँ।<br>
+            आप कुछ भी पूछ सकते हैं, मैं आपकी मदद करने के लिए हमेशा तैयार हूँ।
+          </div>
+          <!-- Action Buttons -->
+          <div class="action-bar">
+            <i class="fa-regular fa-copy" title="Copy" onclick="copyText('greetingText')"></i>
+            <i class="fa-regular fa-thumbs-up" title="Like" onclick="toggleLike(this)"></i>
+            <i class="fa-regular fa-thumbs-down" title="Dislike" onclick="toggleDislike(this)"></i>
+            <i class="fa-solid fa-volume-high" title="Speak" onclick="speakText('greetingText')"></i>
+            <i class="fa-solid fa-share-nodes" title="Share" onclick="shareContent()"></i>
+            <i class="fa-solid fa-ellipsis-vertical" title="Option"></i>
+          </div>
+        </div>
 
-    send_button = gr.Button(
-        "➤",
-        elem_id="send-btn",
-        variant="primary",
-        size="sm"
-    )
+      </div>
+    </div>
 
-    new_chat_button = gr.Button(
-        "＋ New chat",
-        elem_id="new-chat-btn",
-        size="sm"
-    )
+    <!-- Input Box Bar -->
+    <div class="input-container">
+      <div class="input-box">
+        <input type="text" id="userInput" placeholder="यहाँ अपना सवाल लिखें..." onkeypress="handleKeyPress(event)">
+        <button class="input-btn" title="Voice Input" onclick="startVoiceInput()"><i class="fa-solid fa-microphone"></i></button>
+        <button class="input-btn send-btn" title="Send" onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+      </div>
+    </div>
+  </main>
 
-    # Send
-    send_button.click(
-        fn=ask_nexora,
-        inputs=[message_input, history_state],
-        outputs=[chat_html, history_state, history_html]
-    ).then(
-        fn=lambda: "",
-        inputs=None,
-        outputs=message_input
-    )
+  <script>
+    // Sidebar Toggle
+    function toggleSidebar() {
+      document.getElementById('sidebar').classList.toggle('closed');
+    }
 
-    # Enter key
-    message_input.submit(
-        fn=ask_nexora,
-        inputs=[message_input, history_state],
-        outputs=[chat_html, history_state, history_html]
-    ).then(
-        fn=lambda: "",
-        inputs=None,
-        outputs=message_input
-    )
+    // New Chat Reset
+    function startNewChat() {
+      const chatContent = document.getElementById('chatContent');
+      // Reset layout to default state
+      location.reload();
+    }
 
-    # New chat
-    new_chat_button.click(
-        fn=new_chat,
-        inputs=None,
-        outputs=[chat_html, history_state, history_html]
-    )
+    // Send Message Logic
+    function sendMessage() {
+      const input = document.getElementById('userInput');
+      const text = input.value.trim();
+      if (!text) return;
 
+      appendUserMessage(text);
+      input.value = '';
 
-# ============================================================
-# START
-# ============================================================
+      // Add to sidebar history
+      addToHistory(text);
 
-if __name__ == "__main__":
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=int(os.environ.get("PORT", "7860"))
-    )
+      // Simulate AI Response
+      setTimeout(() => {
+        appendAiResponse("मैंने आपका सवाल प्राप्त कर लिया है: '" + text + "'। मैं इस पर प्रक्रिया कर रहा हूँ!");
+      }, 600);
+    }
+
+    function sendQuickPrompt(promptText) {
+      appendUserMessage(promptText);
+      addToHistory(promptText);
+
+      setTimeout(() => {
+        appendAiResponse("ज़रूर! मैं आपकी इसमें पूरी सहायता करूँगा। बताइए आप कहाँ से शुरुआत करना चाहते हैं?");
+      }, 600);
+    }
+
+    function appendUserMessage(text) {
+      const chatContent = document.getElementById('chatContent');
+      const userDiv = document.createElement('div');
+      userDiv.className = 'message user';
+      userDiv.innerHTML = `<div class="user-bubble">${escapeHtml(text)}</div>`;
+      chatContent.appendChild(userDiv);
+      scrollToBottom();
+    }
+
+    function appendAiResponse(text) {
+      const chatContent = document.getElementById('chatContent');
+      const aiDiv = document.createElement('div');
+      aiDiv.className = 'message ai';
+      const textId = 'msg-' + Date.now();
+
+      aiDiv.innerHTML = `
+        <div class="message-header">
+          <div class="avatar">N</div>
+          <span class="bot-name">Nexora AI</span>
+        </div>
+        <div class="message-body" id="${textId}">${escapeHtml(text)}</div>
+        <div class="action-bar">
+          <i class="fa-regular fa-copy" title="Copy" onclick="copyText('${textId}')"></i>
+          <i class="fa-regular fa-thumbs-up" title="Like" onclick="toggleLike(this)"></i>
+          <i class="fa-regular fa-thumbs-down" title="Dislike" onclick="toggleDislike(this)"></i>
+          <i class="fa-solid fa-volume-high" title="Speak" onclick="speakText('${textId}')"></i>
+          <i class="fa-solid fa-share-nodes" title="Share" onclick="shareContent()"></i>
+          <i class="fa-solid fa-ellipsis-vertical" title="Option"></i>
+        </div>
+      `;
+      chatContent.appendChild(aiDiv);
+      scrollToBottom();
+    }
+
+    function handleKeyPress(e) {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    }
+
+    function scrollToBottom() {
+      const chatArea = document.querySelector('.chat-area');
+      chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    // Add to Sidebar History
+    function addToHistory(text) {
+      const historyList = document.getElementById('historyList');
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      item.onclick = function() { loadHistory(this); };
+      item.innerHTML = `<i class="fa-regular fa-message"></i> ${escapeHtml(text)}`;
+      historyList.prepend(item);
+    }
+
+    function loadHistory(element) {
+      const text = element.innerText.trim();
+      appendUserMessage(text);
+      setTimeout(() => {
+        appendAiResponse("यह आपके इतिहास (" + text + ") का विवरण है।");
+      }, 500);
+    }
+
+    // Actions implementation
+    function copyText(elementId) {
+      const text = document.getElementById(elementId).innerText;
+      navigator.clipboard.writeText(text).then(() => {
+        alert('टेक्स्ट कॉपी हो गया है!');
+      });
+    }
+
+    function toggleLike(element) {
+      element.classList.toggle('active-like');
+    }
+
+    function toggleDislike(element) {
+      element.classList.toggle('active-dislike');
+    }
+
+    function speakText(elementId) {
+      const text = document.getElementById(elementId).innerText;
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'hi-IN';
+        window.speechSynthesis.speak(utterance);
+      } else {
+        alert('आपकी ब्राउज़र में वॉइस सपोर्ट उपलब्ध नहीं है।');
+      }
+    }
+
+    function shareContent() {
+      if (navigator.share) {
+        navigator.share({
+          title: 'Nexora AI Chat',
+          text: 'Nexora AI के साथ चैट करें!'
+        }).catch(() => {});
+      } else {
+        alert('शेयर लिंक कॉपी कर लिया गया है!');
+      }
+    }
+
+    function startVoiceInput() {
+      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'hi-IN';
+        recognition.start();
+
+        recognition.onresult = function(event) {
+          const transcript = event.results[0][0].transcript;
+          document.getElementById('userInput').value = transcript;
+        };
+      } else {
+        alert('आपके ब्राउज़र में डायरेक्ट माइक इनपुट सपोर्ट नहीं है।');
+      }
+    }
+
+    function openSettings() {
+      alert('Settings Menu Open');
+    }
+
+    function openHelp() {
+      alert('Help & Support Menu Open');
+    }
+
+    function escapeHtml(text) {
+      return text
+          .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
